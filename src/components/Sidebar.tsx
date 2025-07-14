@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   FileCode, 
@@ -9,6 +8,7 @@ import {
   Settings,
   ChevronRight
 } from 'lucide-react';
+import { useNavigate } from "react-router-dom"; 
 
 interface SidebarProps {
   activeView: string;
@@ -16,6 +16,8 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
+  const navigate = useNavigate(); 
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: FileCode },
     { id: 'upload', label: 'Upload Code', icon: Upload },
@@ -40,7 +42,10 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
           return (
             <button
               key={item.id}
-              onClick={() => onViewChange(item.id)}
+              onClick={() => {
+                onViewChange(item.id);       
+                navigate(item.id === 'dashboard' ? '/' : `/${item.id}`);
+              }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
                 isActive 
                   ? 'bg-blue-600 text-white' 
