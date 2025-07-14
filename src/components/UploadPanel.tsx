@@ -1,11 +1,13 @@
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Upload, FileCode, FolderOpen, X } from 'lucide-react';
-
+import { useNavigate } from 'react-router-dom';
 const UploadPanel: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-
+  const [python2Code, setPython2Code] = useState("")
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const navigate = useNavigate();
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(true);
@@ -21,6 +23,20 @@ const UploadPanel: React.FC = () => {
     // Simulate file upload
     setUploadedFiles(['legacy_auth.py', 'database_utils.py', 'config_parser.py']);
   };
+
+  function handleUpload(e) {
+    const chosenFile = e.target.files?.[0];
+    if (!chosenFile) return;
+    setUploadedFiles(prev => [...prev, chosenFile.name]);
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const text = evt.target?.result;
+      if (typeof text === "string") setPython2Code(text);
+    };
+    reader.onerror = () => console.error("Could not read file:", reader.error);
+    reader.readAsText(chosenFile);
+  }
+
 
   const removeFile = (fileName: string) => {
     setUploadedFiles(uploadedFiles.filter(file => file !== fileName));
@@ -50,10 +66,18 @@ const UploadPanel: React.FC = () => {
             or click to browse and select files
           </p>
           <div className="flex gap-3 justify-center">
-            <button className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+            <button className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            onClick={() => fileInputRef.current?.click()}>
               <FolderOpen size={16} />
               Browse Files
             </button>
+            <input
+            ref={fileInputRef}
+            type="file"
+            style={{ display: "none" }}
+            accept=".py"
+            onChange={handleUpload}
+            />
             <button className="border border-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-50 transition-colors">
               Select Folder
             </button>
@@ -88,8 +112,10 @@ const UploadPanel: React.FC = () => {
               <span className="text-sm text-gray-600">
                 {uploadedFiles.length} files ready for conversion
               </span>
-              <button className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors">
+              <button className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
+              onClick={() => navigate('/convert', { state: { code: python2Code, fileName: uploadedFiles } })}>
                 Start Conversion
+                
               </button>
             </div>
           </div>
