@@ -7,12 +7,16 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
-    port: 8080,
+    port: 8080, // Used in dev when Electron loads from dev server
+  },
+  build: {
+    outDir: "dist",       // 🔥 Electron will load from this in production
+    emptyOutDir: true,    // Clean old builds
+    sourcemap: true,      // Optional: helpful for debugging in Electron
   },
   plugins: [
     react(),
-    mode === 'development' &&
-    componentTagger(),
+    mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {
     alias: {
