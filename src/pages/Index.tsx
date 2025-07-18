@@ -2,8 +2,7 @@
 import React, { useState } from 'react';
 import Sidebar from '../components/Sidebar';
 import Dashboard from '../components/Dashboard';
-import UploadPanel from '../components/UploadPanel';
-import CodeConverter from '../components/CodeConverter';
+import CodeWorkspace from '../components/CodeWorkspace';
 import SecurityScanner from '../components/SecurityScanner';
 import SummaryReport from '../components/SummaryReport';
 import Settings from '../components/Settings';
@@ -15,10 +14,8 @@ const Index = () => {
     switch (activeView) {
       case 'dashboard':
         return <Dashboard />;
-      case 'upload':
-        return <UploadPanel />;
-      case 'convert':
-        return <CodeConverter />;
+      case 'workspace':
+        return <CodeWorkspace />;
       case 'security':
         return <SecurityScanner />;
       case 'report':

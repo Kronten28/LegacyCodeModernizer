@@ -6,8 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import Layout from "./components/Layout";
 import Dashboard from "./components/Dashboard";
-import UploadPanel from "./components/UploadPanel";
-import CodeConverter from "./components/CodeConverter";
+import CodeWorkspace from "./components/CodeWorkspace";
 import SecurityScanner from "./components/SecurityScanner";
 import SummaryReport from "./components/SummaryReport";
 import Settings from "./components/Settings";
@@ -24,8 +23,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
-            <Route path="upload" element={<UploadPanel />} />
-            <Route path="convert" element={<CodeConverter />} />
+            <Route path="workspace" element={<CodeWorkspace />} />
             <Route path="security" element={<SecurityScanner />} />
             <Route path="report" element={<SummaryReport />} />
             <Route path="settings" element={<Settings />} />

@@ -1,8 +1,7 @@
 import React from 'react';
 import { 
-  FileCode, 
-  Upload, 
-  RefreshCw, 
+  Home, 
+  Code, 
   Shield, 
   FileText, 
   Settings,
@@ -19,9 +18,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
   const navigate = useNavigate(); 
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: FileCode },
-    { id: 'upload', label: 'Upload Code', icon: Upload },
-    { id: 'convert', label: 'Convert', icon: RefreshCw },
+    { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'workspace', label: 'Code Workspace', icon: Code },
     { id: 'security', label: 'Security Scan', icon: Shield },
     { id: 'report', label: 'Summary Report', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
