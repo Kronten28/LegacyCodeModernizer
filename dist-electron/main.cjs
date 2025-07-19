@@ -53,6 +53,7 @@ function createWindow() {
     }
 }
 electron_1.app.whenReady().then(createWindow);
+electron_1.app.disableHardwareAcceleration();
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
         electron_1.app.quit();

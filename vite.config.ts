@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => ({
     outDir: "dist",       // 🔥 Electron will load from this in production
     emptyOutDir: true,    // Clean old builds
     sourcemap: true,      // Optional: helpful for debugging in Electron
+    base: './',
   },
   plugins: [
     react(),
