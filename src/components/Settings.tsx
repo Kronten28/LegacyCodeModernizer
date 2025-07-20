@@ -40,13 +40,12 @@ const Settings: React.FC = () => {
                   onChange={(e) => setSettings({...settings, aiModel: e.target.value})}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="gpt-4.0">GPT-4.0 (Recommended)</option>
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Faster)</option>
-                  <option value="claude-3">Claude 3 (Alternative)</option>
+                  <option value="gpt-4.0">GPT-4.1 (Recommended)</option>
+                  <option value="gpt-3.5-turbo">GPT-4o (Faster)</option>
                 </select>
               </div>
               <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
-                <strong>GPT-4.0</strong> provides the highest accuracy for code conversion and security scanning.
+                <strong>GPT-4.1</strong> provides the highest accuracy for code conversion and security scanning.
               </div>
             </div>
           </div>

@@ -80,3 +80,36 @@ def migrate_file(src_path, dst_path):
     code3 = read_code(dst_path)
     code3_improved = ai_migrate(code3)[0]
     write_tmp(dst_path, code3_improved)
+
+
+def migrate_dir(src_dir, dst_dir):
+    os.makedirs(dst_dir, exist_ok=True)
+    for fname in os.listdir(src_dir):
+        if not fname.endswith(".py"):
+            continue
+        migrate_file(
+            os.path.join(src_dir, fname),
+            os.path.join(dst_dir, fname),
+        )
+
+
+def migrate_code_str(code_str):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_path = os.path.join(tmpdir, "src.py")
+        dst_path = os.path.join(tmpdir, "dst.py")
+        with open(src_path, "w", encoding="utf-8") as f:
+            f.write(code_str)
+        run_2to3(src_path, dst_path)
+        code3 = read_code(dst_path)
+        code3_improved = ai_migrate(code3)
+        return code3_improved
+
+def main():
+    src = sys.argv[1]
+    if os.path.isfile(src):
+        res = migrate_code_str(read_code(src))
+        print(f"Code: \n{res[0]}\nExplain: {res[1]}")
+
+
+if __name__ == "__main__":
+    main()
