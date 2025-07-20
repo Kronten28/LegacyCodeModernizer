@@ -1,7 +1,7 @@
 import os
 import sys
 import subprocess
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from dotenv import load_dotenv
 import tempfile
 
@@ -30,20 +30,26 @@ def ai_migrate(code):
         "If any comments are added to explain key changes, include them inline.\n\n"
         f"{code}"
     )
-    resp = client.responses.create(
-        model="gpt-4.1",
-        input=prompt,
-    ).output_text
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": prompt}],
+        ).choices[0].message.content
+    except OpenAIError as e:
+        raise RuntimeError(f"OpenAI request failed: {e}") from e
     prompt = (
         "You are a professional Python code modernizer. Here are two versions of code, one is based on Python2 and another is based on Python3. Your task is compare the two versions of codes and make a bullet-point list explaining what was changed\n"
         f"Python2 Code: {code}, Python3 Code: {resp}\n"
         "If you are not sure about file content or codebase structure pertaining to the user's request, use your tools to read files and gather the relevant information: do NOT guess or make up an answer.\n" 
         "Remove any unnecessary content in response and output with plain text format\n"
     )
-    compare = client.responses.create(
-        model="gpt-4.1",
-        input=prompt,
-    ).output_text
+    try:
+        compare = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": prompt}],
+        ).choices[0].message.content
+    except OpenAIError as e:
+        raise RuntimeError(f"OpenAI request failed: {e}") from e
     return (resp, compare)
 
 
