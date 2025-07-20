@@ -1,7 +1,7 @@
 import os
 import sys
 import subprocess
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from dotenv import load_dotenv
 import tempfile
 
@@ -9,6 +9,7 @@ load_dotenv()
 OpenAI.api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI()
 
+MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4.1")
 
 def read_code(path):
     with open(path, encoding="utf-8") as f:
@@ -20,38 +21,46 @@ def write_tmp(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
-
 def ai_migrate(code):
-    prompt = (
-        "You are an agent - please keep going until the user's query is completely resolved, before ending your turn and yielding back to the user. Only terminate your turn when you are sure that the problem is solved.\n\n"
-        "If you are not sure about file content or codebase structure pertaining to the user's request, use your tools to read files and gather the relevant information: do NOT guess or make up an answer.\n\n"
-        "Below is Python 3 code that was translated from Python 2 using 2to3. Label all the variable's type explicitly and add type annotations to all functions and variables. Also, remove any unnecessary comments or whitespace or unused imports.\n\n"
-        "Please improve the code to make it more idiomatic and robust in Python 3, but only output the code with nothing else. Remember to remove ``` at the beginning and the end\n\n"
-        "If any comments are added to explain key changes, include them inline.\n\n"
+    system_prompt = (
+        "You modernize Python 2 code into idiomatic Python 3 with type hints."
+    )
+    user_prompt = (
+        "Below is Python 3 code translated from Python 2 using 2to3. "
+        "Label all variable types explicitly and add type annotations to all functions and variables. "
+        "Remove unnecessary comments, whitespace and unused imports. "
+        "Improve the code to make it idiomatic and robust in Python 3. "
+        "Respond only with the improved code in a Python code block.\n\n"
         f"{code}"
     )
-    resp = client.responses.create(
-        model="gpt-4.1",
-        input=prompt,
-    ).output_text
-    prompt = (
-        "You are a professional Python code modernizer. Here are two versions of code, one is based on Python2 and another is based on Python3. Your task is compare the two versions of codes and make a bullet-point list explaining what was changed\n"
-        f"Python2 Code: {code}, Python3 Code: {resp}\n"
-        "If you are not sure about file content or codebase structure pertaining to the user's request, use your tools to read files and gather the relevant information: do NOT guess or make up an answer.\n" 
-        "Remove any unnecessary content in response and output with plain text format\n"
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+        ).choices[0].message.content
+    except OpenAIError as e:
+        raise RuntimeError(f"OpenAI request failed: {e}") from e
+    compare_prompt = (
+        "Here are two versions of code. The first is Python 2 and the second is the modernized Python 3 version. "
+        "Provide a bullet-point list explaining what changed.\n"
+        f"Python2 Code:\n{code}\nPython3 Code:\n{resp}"
     )
-    compare = client.responses.create(
-        model="gpt-4.1",
-        input=prompt,
-    ).output_text
+    try:
+        compare = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": compare_prompt},
+            ],
+            temperature=0.2,
+        ).choices[0].message.content
+    except OpenAIError as e:
+        raise RuntimeError(f"OpenAI request failed: {e}") from e
     return (resp, compare)
-
-
-def write_tmp(path, content):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
 
 from lib2to3.refactor import RefactoringTool, get_fixers_from_package
 

@@ -16,6 +16,7 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.env
 .DS_Store
 *.suo
 *.ntvs*
@@ -25,3 +26,5 @@ dist-ssr
 LegacyCodeModernizer.code-workspace
 .venv
 .env
+__pycache__/
+*.py[cod]
