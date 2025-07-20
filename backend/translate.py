@@ -20,7 +20,6 @@ def write_tmp(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
-
 def ai_migrate(code):
     prompt = (
         "You are an agent - please keep going until the user's query is completely resolved, before ending your turn and yielding back to the user. Only terminate your turn when you are sure that the problem is solved.\n\n"
@@ -51,13 +50,6 @@ def ai_migrate(code):
     except OpenAIError as e:
         raise RuntimeError(f"OpenAI request failed: {e}") from e
     return (resp, compare)
-
-
-def write_tmp(path, content):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
 
 from lib2to3.refactor import RefactoringTool, get_fixers_from_package
 
