@@ -1,9 +1,16 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from translate import ai_migrate
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
 app = Flask(__name__)
-CORS(app)
+
+# Allow configuration of CORS origins through environment variable
+allowed_origins = os.getenv("FRONTEND_ORIGIN", "http://localhost:8080")
+origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+CORS(app, origins=origins)
 
 @app.route('/migrate', methods=['POST'])
 def migrate():
