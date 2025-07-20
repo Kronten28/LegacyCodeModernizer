@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Upload, Download, Copy, RotateCcw, FileText, FolderOpen, X, Play } from 'lucide-react';
 import axios from "axios";
 import { saveAs } from "file-saver";
+import { toast } from "@/components/ui/sonner";
 
 const CodeWorkspace: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
@@ -42,8 +43,29 @@ const CodeWorkspace: React.FC = () => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    // Simulate file upload
-    setUploadedFiles(['legacy_auth.py', 'database_utils.py', 'config_parser.py']);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const pythonFiles = files.filter(f => f.name.toLowerCase().endsWith('.py'));
+    const unsupported = files.filter(f => !f.name.toLowerCase().endsWith('.py'));
+
+    if (unsupported.length > 0) {
+      toast('Unsupported file type dropped', {
+        description: 'Only .py files are allowed.'
+      });
+    }
+
+    if (pythonFiles.length === 0) return;
+
+    setUploadedFiles(prev => [...prev, ...pythonFiles.map(f => f.name)]);
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const text = evt.target?.result;
+      if (typeof text === 'string') setPython2Code(text);
+    };
+    reader.onerror = () => console.error('Could not read file:', reader.error);
+    reader.readAsText(pythonFiles[0]);
   };
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,8 +108,9 @@ const CodeWorkspace: React.FC = () => {
       } else {
         setPython3Code("// BackendErr: " + (res.data.message || "Unknown Err"));
       }
-    } catch (e: any) {
-      setPython3Code("// NetworkErr: " + e.message);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setPython3Code("// NetworkErr: " + message);
     } finally {
       setIsConverting(false);
     }
