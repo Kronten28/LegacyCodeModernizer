@@ -6,7 +6,7 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:8080 && npm run build:electron && cross-env NODE_ENV=development electron ./dist-electron/main.cjs\"",
-    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:electron": "tsc -p tsconfig.electron.json && mv dist-electron/main.js dist-electron/main.cjs",
     "start": "npm run build:electron && electron ./dist-electron/main.cjs",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
