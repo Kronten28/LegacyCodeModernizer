@@ -3,18 +3,32 @@ import { Upload, Download, Copy, RotateCcw, FileText, FolderOpen, X, Play } from
 import axios from "axios";
 import { saveAs } from "file-saver";
 import { toast } from "@/components/ui/sonner";
+import { useLocation } from 'react-router-dom';
 
 const CodeWorkspace: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [python2Code, setPython2Code] = useState("");
-  const [python3Code, setPython3Code] = useState("Converted code will appear here...");
+  const location = useLocation();
+  const passedCode = location.state?.code || "";
+  const [python2Code, setPython2Code] = useState(passedCode);
+
+  const [python3Code, setPython3Code] = useState(`Converted code will appear here...`);
+
   const [isConverting, setIsConverting] = useState(false);
+
   const [codeChanges, setCodeChanges] = useState("");
+
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, string>>({});
+
+  const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>({});
+  const [selectedFileName, setSelectedFileName] = useState<string>("");
+
+  const [selectedConvertedFileName, setSelectedConvertedFileName] = useState<string>("");
+  
   
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const leftPanelRef = useRef<HTMLTextAreaElement | null>(null);
   const rightPanelRef = useRef<HTMLTextAreaElement | null>(null);
+
 
   // Scroll sync between panels
   const handleScroll = (source: 'left' | 'right') => {
@@ -41,48 +55,86 @@ const CodeWorkspace: React.FC = () => {
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
+  e.preventDefault();
+  setDragOver(false);
 
-    const pythonFiles = files.filter(f => f.name.toLowerCase().endsWith('.py'));
-    const unsupported = files.filter(f => !f.name.toLowerCase().endsWith('.py'));
+  const files = Array.from(e.dataTransfer.files);
+  if (files.length === 0) return;
 
-    if (unsupported.length > 0) {
-      toast('Unsupported file type dropped', {
-        description: 'Only .py files are allowed.'
-      });
-    }
+  const pythonFiles = files.filter(f => f.name.toLowerCase().endsWith('.py'));
+  const unsupported = files.filter(f => !f.name.toLowerCase().endsWith('.py'));
 
-    if (pythonFiles.length === 0) return;
+  if (unsupported.length > 0) {
+    toast('Unsupported file type dropped', {
+      description: 'Only .py files are allowed.'
+    });
+  }
 
-    setUploadedFiles(prev => [...prev, ...pythonFiles.map(f => f.name)]);
+  if (pythonFiles.length === 0) return;
 
+  pythonFiles.forEach((file) => {
     const reader = new FileReader();
     reader.onload = evt => {
       const text = evt.target?.result;
-      if (typeof text === 'string') setPython2Code(text);
+      if (typeof text === 'string') {
+        setUploadedFiles(prev => {
+          const merged = { ...prev, [file.name]: text };
+
+          // Set selected if it's the first one uploaded or none selected yet
+          if (!selectedFileName) {
+            setSelectedFileName(file.name);
+            setPython2Code(text);
+          }
+
+          return merged;
+        });
+      }
     };
     reader.onerror = () => console.error('Could not read file:', reader.error);
-    reader.readAsText(pythonFiles[0]);
-  };
+    reader.readAsText(file);
+  });
+};
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const chosenFile = e.target.files?.[0];
-    if (!chosenFile) return;
-    setUploadedFiles(prev => [...prev, chosenFile.name]);
+
+  function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+
+  const newFiles: Record<string, string> = {};
+  const fileList = Array.from(files);
+
+  fileList.forEach((file) => {
     const reader = new FileReader();
     reader.onload = evt => {
       const text = evt.target?.result;
-      if (typeof text === "string") setPython2Code(text);
+      if (typeof text === "string") {
+        newFiles[file.name] = text;
+
+        setUploadedFiles(prev => {
+          const merged = { ...prev, [file.name]: text };
+
+          // Set first file as selected if none is selected
+          if (!selectedFileName) {
+            setSelectedFileName(file.name);
+            setPython2Code(text);
+          }
+
+          return merged;
+        });
+      }
     };
     reader.onerror = () => console.error("Could not read file:", reader.error);
-    reader.readAsText(chosenFile);
-  };
+    reader.readAsText(file);
+  });
+
+  // Reset the file input value to allow re-upload of same file name
+  e.target.value = "";
+}
+
 
   const removeFile = (fileName: string) => {
-    setUploadedFiles(uploadedFiles.filter(file => file !== fileName));
+    const { [fileName]: _, ...rest } = uploadedFiles;
+    setUploadedFiles(rest);
   };
 
   const handleCopy = async (code: string) => {
@@ -94,34 +146,51 @@ const CodeWorkspace: React.FC = () => {
   };
 
   const handleModernize = async () => {
-    if (!python2Code) {
-      setPython3Code("// Input Python 2 Code");
+    if (Object.keys(uploadedFiles).length === 0) {
+      setPython3Code("// No uploaded files to convert.");
       return;
     }
+
     setIsConverting(true);
     setPython3Code("// Translating...");
-    try {
-      const res = await axios.post("http://localhost:5000/migrate", { code: python2Code });
-      if (res.data.status === "success") {
-        setPython3Code(res.data.result);
-        setCodeChanges(res.data.explain);
-      } else {
-        setPython3Code("// BackendErr: " + (res.data.message || "Unknown Err"));
+    setCodeChanges("");
+
+    const newConvertedFiles: Record<string, string> = {};
+    let firstSet = false;
+
+    for (const [fileName, fileContent] of Object.entries(uploadedFiles)) {
+      try {
+        const res = await axios.post("http://localhost:5000/migrate", { code: fileContent });
+        /*await axios.post("http://localhost:5000/migrate-multi", {files: uploadedFiles  // object with filename -> content}); */
+        if (res.data.status === "success") {
+          newConvertedFiles[fileName] = res.data.result;
+
+          // Automatically set the first result as the active view
+          if (!firstSet) {
+            setSelectedConvertedFileName(fileName);
+            setPython3Code(res.data.result);
+            setCodeChanges(res.data.explain || "");
+            firstSet = true;
+          }
+        } 
+        else {
+          newConvertedFiles[fileName] = `// BackendErr: ${res.data.message || "Unknown Err"}`;
+        }
+      } 
+      catch (e: any) {
+        newConvertedFiles[fileName] = `// NetworkErr: ${e.message}`;
       }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setPython3Code("// NetworkErr: " + message);
-    } finally {
-      setIsConverting(false);
     }
+    setConvertedFiles(newConvertedFiles);
+    setIsConverting(false);
   };
 
   const handleDownload = () => {
-    const filename = uploadedFiles.length > 0 ? `${uploadedFiles[0]}` : "converted_code.py";
-    saveAs(
-      new Blob([python3Code], { type: "text/x-python;charset=utf-8" }),
-      filename
-    );
+  const filename = selectedFileName ? `${selectedFileName}` : "converted_code.py";
+  saveAs(
+    new Blob([python3Code], { type: "text/x-python;charset=utf-8" }),
+    filename
+  );
   };
 
   return (
@@ -165,6 +234,7 @@ const CodeWorkspace: React.FC = () => {
                   style={{ display: "none" }}
                   accept=".py"
                   onChange={handleUpload}
+                  multiple
                 />
               </div>
             </div>
@@ -192,6 +262,26 @@ const CodeWorkspace: React.FC = () => {
                 <Copy size={14} />
               </button>
             </div>
+            {Object.keys(uploadedFiles).length > 0 && (
+              <div className="mt-2">
+                <label htmlFor="file-switcher" className="text-sm text-gray-700 mr-2 ">View file:</label>
+                <select
+                  id="file-switcher"
+                  value={selectedFileName}
+                  onChange={(e) => {
+                    setSelectedFileName(e.target.value);
+                    setPython2Code(uploadedFiles[e.target.value]);
+                  }}
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                >
+              {Object.keys(uploadedFiles).map((fileName) => (
+                <option key={fileName} value={fileName}>
+                  {fileName}
+                </option>
+              ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Right Panel - Python 3 Output */}
@@ -225,15 +315,35 @@ const CodeWorkspace: React.FC = () => {
                 <Copy size={14} />
               </button>
             </div>
+            {Object.keys(convertedFiles).length > 0 && (
+              <div className="mt-2">
+                <label htmlFor="file-switcher" className="text-sm text-gray-700 mr-2 ">View file:</label>
+                <select
+                  id="file-switcher"
+                  value={selectedConvertedFileName}
+                  onChange={(e) => {
+                    setSelectedConvertedFileName(e.target.value);
+                    setPython3Code(convertedFiles[e.target.value]);
+                  }}
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                >
+              {Object.keys(convertedFiles).map((fileName) => (
+                <option key={fileName} value={fileName}>
+                  {fileName}
+                </option>
+              ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Uploaded Files Section */}
-        {uploadedFiles.length > 0 && (
+        {Object.keys(uploadedFiles).length > 0 && (
           <div className="mt-6 bg-white rounded-lg shadow-sm border p-4">
             <h4 className="font-semibold text-gray-900 mb-3">Uploaded Files</h4>
             <div className="flex flex-wrap gap-2">
-              {uploadedFiles.map((fileName) => (
+              {Object.keys(uploadedFiles).map((fileName) => (
                 <div key={fileName} className="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
                   <FileText className="text-blue-500" size={16} />
                   <span className="text-sm font-medium text-gray-900">{fileName}</span>
@@ -260,9 +370,11 @@ const CodeWorkspace: React.FC = () => {
                 <div className="text-sm text-gray-600">
                   <strong>Translation Summary:</strong>
                 </div>
-                <pre className="p-3 bg-gray-100 text-sm rounded whitespace-pre-wrap text-gray-800 border">
-                  {codeChanges}
-                </pre>
+                <div className="p-4 bg-white text-gray-800 text-md rounded-md border border-gray-200 shadow-sm space-y-2">
+                  {codeChanges.split('\n').map((line, i) => (
+                    <p key={i} className="whitespace-pre-wrap">{line}</p>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="text-gray-500 italic text-sm">
