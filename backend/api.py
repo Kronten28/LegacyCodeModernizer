@@ -12,16 +12,18 @@ allowed_origins = os.getenv("FRONTEND_ORIGIN", "http://localhost:8080")
 origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
 CORS(app, origins=origins)
 
-@app.route('/migrate', methods=['POST'])
+
+@app.route("/migrate", methods=["POST"])
 def migrate():
-    code = request.json.get('code')
+    code = request.json.get("code")
     if not code:
-        return jsonify({'status': 'error', 'message': 'No code given'}), 400
+        return jsonify({"status": "error", "message": "No code given"}), 400
     try:
         result = ai_migrate(code)
-        return jsonify({'status': 'success', 'result': result[0], 'explain': result[1]})
+        return jsonify({"status": "success", "result": result[0], "explain": result[1]})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(port=5000)
