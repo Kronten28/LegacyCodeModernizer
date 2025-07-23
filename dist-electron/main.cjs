@@ -33,27 +33,67 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+const child_process_1 = require("child_process");
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env.NODE_ENV === "development";
+let backendProc;
+function startBackend() {
+    const backendDir = path.resolve(__dirname, "../backend");
+    console.log(`[Electron Main]: Attempting to start backend from: ${backendDir}/api.py`);
+    backendProc = (0, child_process_1.spawn)("python3", ["api.py"], {
+        cwd: backendDir,
+        stdio: "pipe",
+    });
+    backendProc.stdout?.on("data", (data) => {
+        console.log(`[Backend stdout]: ${data.toString().trim()}`);
+    });
+    backendProc.stderr?.on("data", (data) => {
+        console.error(`[Backend stderr]: ${data.toString().trim()}`);
+    });
+    backendProc.on("close", (code, signal) => {
+        console.log(`[Backend exited with code ${code}, signal ${signal}]`);
+        if (code !== 0) {
+            console.error("[Electron Main]: Backend process terminated abnormally!");
+        }
+    });
+    backendProc.on("error", (err) => {
+        console.error(`[Electron Main]: Failed to start backend process: ${err.message}`);
+    });
+}
 function createWindow() {
     const win = new electron_1.BrowserWindow({
         width: 800,
         height: 600,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: true,
         },
     });
     if (isDev) {
-        win.loadURL('http://localhost:8080');
+        win.loadURL("http://localhost:8080");
         win.webContents.openDevTools();
     }
     else {
-        win.loadFile(path.join(__dirname, '../dist/index.html'));
+        win.loadFile(path.join(__dirname, "../dist/index.html"));
     }
 }
-electron_1.app.whenReady().then(createWindow);
-electron_1.app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin')
+electron_1.app.whenReady().then(() => {
+    console.log("[Electron Main]: Main Process Start!");
+    startBackend();
+    createWindow();
+    electron_1.app.on("activate", () => {
+        if (electron_1.BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
+        }
+    });
+});
+electron_1.app.on("will-quit", () => {
+    if (backendProc) {
+        console.log("[Electron Main]: Killing backend process...");
+        backendProc.kill("SIGINT");
+    }
+});
+electron_1.app.on("window-all-closed", () => {
+    if (process.platform !== "darwin")
         electron_1.app.quit();
 });

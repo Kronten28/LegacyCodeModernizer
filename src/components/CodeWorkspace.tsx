@@ -1,37 +1,62 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Upload, Download, Copy, RotateCcw, FileText, FolderOpen, X, Play } from 'lucide-react';
 import axios from "axios";
 import { saveAs } from "file-saver";
 import { toast } from "@/components/ui/sonner";
-import { useAppContext } from '@/context/AppContext'; // Import the context hook
+import { useAppContext } from '@/context/AppContext';
+import { useLocation } from 'react-router-dom';
 
 const CodeWorkspace: React.FC = () => {
     const [dragOver, setDragOver] = useState(false);
-    const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-    const [python2Code, setPython2Code] = useState("");
+    const location = useLocation();
+    const passedCode = location.state?.code || "";
+
     const [isConverting, setIsConverting] = useState(false);
+    const [uploadedFiles, setUploadedFiles] = useState<Record<string, string>>({});
+    const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>({});
+    const [selectedFileName, setSelectedFileName] = useState<string>("");
+    const [selectedConvertedFileName, setSelectedConvertedFileName] = useState<string>("");
 
     // Use the context for state management
     const { addReport, latestReport } = useAppContext();
-    const python3Code = latestReport?.convertedCode ?? "Converted code will appear here...";
+    const python2Code = uploadedFiles[selectedFileName] || "";
+    const python3Code = convertedFiles[selectedConvertedFileName] || "Converted code will appear here...";
     const codeChanges = latestReport?.explanation ?? "";
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const leftPanelRef = useRef<HTMLTextAreaElement | null>(null);
     const rightPanelRef = useRef<HTMLTextAreaElement | null>(null);
 
-    // Scroll sync logic remains the same...
+    useEffect(() => {
+        if (passedCode && !selectedFileName) {
+            const initialFileName = "pasted_code.py";
+            setUploadedFiles({ [initialFileName]: passedCode });
+            setSelectedFileName(initialFileName);
+        }
+    }, [passedCode, selectedFileName]);
+
+    const handlePython2CodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newCode = e.target.value;
+        if (selectedFileName) {
+            setUploadedFiles(prev => ({
+                ...prev,
+                [selectedFileName]: newCode,
+            }));
+        } else {
+            // Handle case where code is pasted without a file selected
+            const newFileName = "untitled.py";
+            setUploadedFiles({ [newFileName]: newCode });
+            setSelectedFileName(newFileName);
+        }
+    };
+
     const handleScroll = (source: 'left' | 'right') => {
         if (source === 'left' && leftPanelRef.current && rightPanelRef.current) {
-            const scrollPercentage = leftPanelRef.current.scrollTop /
-                (leftPanelRef.current.scrollHeight - leftPanelRef.current.clientHeight);
-            rightPanelRef.current.scrollTop = scrollPercentage *
-                (rightPanelRef.current.scrollHeight - rightPanelRef.current.clientHeight);
+            const scrollPercentage = leftPanelRef.current.scrollTop / (leftPanelRef.current.scrollHeight - leftPanelRef.current.clientHeight);
+            rightPanelRef.current.scrollTop = scrollPercentage * (rightPanelRef.current.scrollHeight - rightPanelRef.current.clientHeight);
         } else if (source === 'right' && leftPanelRef.current && rightPanelRef.current) {
-            const scrollPercentage = rightPanelRef.current.scrollTop /
-                (rightPanelRef.current.scrollHeight - rightPanelRef.current.clientHeight);
-            leftPanelRef.current.scrollTop = scrollPercentage *
-                (leftPanelRef.current.scrollHeight - leftPanelRef.current.clientHeight);
+            const scrollPercentage = rightPanelRef.current.scrollTop / (rightPanelRef.current.scrollHeight - rightPanelRef.current.clientHeight);
+            leftPanelRef.current.scrollTop = scrollPercentage * (leftPanelRef.current.scrollHeight - leftPanelRef.current.clientHeight);
         }
     };
 
@@ -43,18 +68,25 @@ const CodeWorkspace: React.FC = () => {
     const handleDragLeave = () => {
         setDragOver(false);
     };
-    
+
     const processFile = (file: File) => {
         if (!file.name.toLowerCase().endsWith('.py')) {
           toast('Unsupported file type', { description: 'Only .py files are allowed.' });
           return;
         }
     
-        setUploadedFiles(prev => [...prev, file.name]);
         const reader = new FileReader();
         reader.onload = evt => {
           const text = evt.target?.result;
-          if (typeof text === 'string') setPython2Code(text);
+          if (typeof text === 'string') {
+            setUploadedFiles(prev => {
+              const merged = { ...prev, [file.name]: text };
+              if (!selectedFileName || Object.keys(prev).length === 0) {
+                setSelectedFileName(file.name);
+              }
+              return merged;
+            });
+          }
         };
         reader.onerror = () => console.error('Could not read file:', reader.error);
         reader.readAsText(file);
@@ -64,20 +96,23 @@ const CodeWorkspace: React.FC = () => {
         e.preventDefault();
         setDragOver(false);
         const files = Array.from(e.dataTransfer.files);
-        if (files.length > 0) {
-          processFile(files[0]);
-        }
+        files.forEach(processFile);
     };
     
     const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const chosenFile = e.target.files?.[0];
-        if (chosenFile) {
-          processFile(chosenFile);
+        const files = e.target.files;
+        if (files) {
+            Array.from(files).forEach(processFile);
         }
+        e.target.value = "";
     };
 
     const removeFile = (fileName: string) => {
-        setUploadedFiles(uploadedFiles.filter(file => file !== fileName));
+        const { [fileName]: _, ...rest } = uploadedFiles;
+        setUploadedFiles(rest);
+        if (selectedFileName === fileName) {
+            setSelectedFileName(Object.keys(rest)[0] || "");
+        }
     };
 
     const handleCopy = async (code: string) => {
@@ -91,60 +126,73 @@ const CodeWorkspace: React.FC = () => {
     };
 
     const handleModernize = async () => {
-        if (!python2Code) {
-            toast("Input code is empty.", { description: "Please paste or upload Python 2 code." });
+        if (Object.keys(uploadedFiles).length === 0) {
+            toast("No files to convert.", { description: "Please upload one or more Python 2 files." });
             return;
         }
+    
         setIsConverting(true);
-        const startTime = Date.now();
-
-        try {
-            const res = await axios.post("http://localhost:5000/migrate", { code: python2Code });
-            const endTime = Date.now();
-
-            if (res.data.status === "success") {
-                // TODO: Replace placeholder security issues with real data from backend
-                const placeholderSecurityIssues = [
-                    { id: '1', file: 'user_auth.py', line: 45, severity: "high" as "high", standard: 'HIPAA' as "HIPAA", title: 'Hardcoded Password', description: 'Password stored as plain text in code violates HIPAA security requirements.', recommendation: 'Use environment variables or secure key management system.', code: 'password = "admin123"  # Flagged line' },
-                ];
-
+        setConvertedFiles({});
+        
+        const newConvertedFiles: Record<string, string> = {};
+        let firstFileProcessed = false;
+    
+        for (const [fileName, fileContent] of Object.entries(uploadedFiles)) {
+            const startTime = Date.now();
+            try {
+                const res = await axios.post("http://localhost:5000/migrate", { code: fileContent });
+                const endTime = Date.now();
+    
+                if (res.data.status === "success") {
+                    newConvertedFiles[fileName] = res.data.result;
+    
+                    // TODO: Replace with real security scan logic
+                    const placeholderSecurityIssues = [];
+    
+                    addReport({
+                        success: true,
+                        executionTime: endTime - startTime,
+                        originalCode: fileContent,
+                        convertedCode: res.data.result,
+                        explanation: res.data.explain,
+                        securityIssues: placeholderSecurityIssues,
+                    });
+    
+                    if (!firstFileProcessed) {
+                        setSelectedConvertedFileName(fileName);
+                        firstFileProcessed = true;
+                    }
+                } else {
+                    throw new Error(res.data.message || "Unknown backend error");
+                }
+            } catch (e: unknown) {
+                const endTime = Date.now();
+                const message = e instanceof Error ? e.message : String(e);
+                newConvertedFiles[fileName] = `// Error: ${message}`;
                 addReport({
-                    success: true,
+                    success: false,
                     executionTime: endTime - startTime,
-                    originalCode: python2Code,
-                    convertedCode: res.data.result,
-                    explanation: res.data.explain,
-                    securityIssues: placeholderSecurityIssues,
+                    originalCode: fileContent,
+                    convertedCode: `// Error: ${message}`,
+                    explanation: `Failed to convert ${fileName}.`,
+                    securityIssues: [],
                 });
-                toast("Conversion successful!", { description: `Completed in ${(endTime - startTime) / 1000}s.` });
-            } else {
-                throw new Error(res.data.message || "An unknown backend error occurred.");
             }
-        } catch (e: unknown) {
-            const endTime = Date.now();
-            const message = e instanceof Error ? e.message : String(e);
-            addReport({
-                success: false,
-                executionTime: endTime - startTime,
-                originalCode: python2Code,
-                convertedCode: `// Error during conversion: ${message}`,
-                explanation: "The conversion failed. Please check the console for more details and ensure your backend server is running.",
-                securityIssues: [],
-            });
-            toast("Conversion Failed", { description: message });
-        } finally {
-            setIsConverting(false);
         }
+        
+        setConvertedFiles(newConvertedFiles);
+        toast(`${Object.keys(newConvertedFiles).length} files processed.`);
+        setIsConverting(false);
     };
 
     const handleDownload = () => {
-        if (!latestReport || !latestReport.success) {
-            toast("No code to download.", { description: "Please convert some code first." });
+        if (!selectedConvertedFileName || !convertedFiles[selectedConvertedFileName]) {
+            toast("No converted code to download.", { description: "Please select a converted file." });
             return;
         }
-        const filename = uploadedFiles.length > 0 ? `${uploadedFiles[0].replace('.py', '_converted.py')}` : "converted_code.py";
+        const filename = `${selectedConvertedFileName.replace('.py', '_converted.py')}`;
         saveAs(
-            new Blob([python3Code], { type: "text/x-python;charset=utf-8" }),
+            new Blob([convertedFiles[selectedConvertedFileName]], { type: "text/x-python;charset=utf-8" }),
             filename
         );
     };
@@ -152,7 +200,6 @@ const CodeWorkspace: React.FC = () => {
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
             <div className="max-w-7xl mx-auto">
-                {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-3xl font-bold text-gray-900">Code Workspace</h2>
                     <div className="flex gap-3">
@@ -167,22 +214,18 @@ const CodeWorkspace: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Split View Code Panels */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[60vh]">
-                    {/* Left Panel - Python 2 Input */}
                     <div className="bg-white rounded-lg shadow-sm border flex flex-col">
                         <div className="p-4 border-b bg-red-50 border-red-200 flex items-center justify-between">
                             <h3 className="font-semibold text-red-800 flex items-center gap-2">
-                                <FileText size={16} />
-                                Python 2 (Legacy)
+                                <FileText size={16} /> Python 2 (Legacy)
                             </h3>
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors flex items-center gap-1"
                                 >
-                                    <FolderOpen size={12} />
-                                    Upload
+                                    <FolderOpen size={12} /> Upload
                                 </button>
                                 <input
                                     ref={fileInputRef}
@@ -190,6 +233,7 @@ const CodeWorkspace: React.FC = () => {
                                     style={{ display: "none" }}
                                     accept=".py"
                                     onChange={handleUpload}
+                                    multiple
                                 />
                             </div>
                         </div>
@@ -197,7 +241,7 @@ const CodeWorkspace: React.FC = () => {
                             <textarea
                                 ref={leftPanelRef}
                                 value={python2Code}
-                                onChange={(e) => setPython2Code(e.target.value)}
+                                onChange={handlePython2CodeChange}
                                 onScroll={() => handleScroll('left')}
                                 className="w-full h-full p-4 font-mono text-sm border-0 resize-none focus:outline-none bg-gray-900 text-green-400"
                                 placeholder="Paste your Python 2 code here or upload a file..."
@@ -217,21 +261,33 @@ const CodeWorkspace: React.FC = () => {
                                 <Copy size={14} />
                             </button>
                         </div>
+                         {Object.keys(uploadedFiles).length > 0 && (
+                            <div className="p-2 border-t">
+                                <label htmlFor="file-switcher-py2" className="text-sm text-gray-700 mr-2">View file:</label>
+                                <select
+                                    id="file-switcher-py2"
+                                    value={selectedFileName}
+                                    onChange={(e) => setSelectedFileName(e.target.value)}
+                                    className="text-sm border border-gray-300 rounded px-2 py-1"
+                                >
+                                    {Object.keys(uploadedFiles).map((fileName) => (
+                                        <option key={fileName} value={fileName}>{fileName}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
 
-                    {/* Right Panel - Python 3 Output */}
                     <div className="bg-white rounded-lg shadow-sm border flex flex-col">
                         <div className="p-4 border-b bg-green-50 border-green-200 flex items-center justify-between">
                             <h3 className="font-semibold text-green-800 flex items-center gap-2">
-                                <FileText size={16} />
-                                Python 3 (Converted)
+                                <FileText size={16} /> Python 3 (Converted)
                             </h3>
                             <button
                                 onClick={handleDownload}
                                 className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
                             >
-                                <Download size={12} />
-                                Download
+                                <Download size={12} /> Download
                             </button>
                         </div>
                         <div className="flex-1 relative">
@@ -250,15 +306,29 @@ const CodeWorkspace: React.FC = () => {
                                 <Copy size={14} />
                             </button>
                         </div>
+                        {Object.keys(convertedFiles).length > 0 && (
+                            <div className="p-2 border-t">
+                                <label htmlFor="file-switcher-py3" className="text-sm text-gray-700 mr-2">View file:</label>
+                                <select
+                                    id="file-switcher-py3"
+                                    value={selectedConvertedFileName}
+                                    onChange={(e) => setSelectedConvertedFileName(e.target.value)}
+                                    className="text-sm border border-gray-300 rounded px-2 py-1"
+                                >
+                                    {Object.keys(convertedFiles).map((fileName) => (
+                                        <option key={fileName} value={fileName}>{fileName}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Uploaded Files Section */}
-                {uploadedFiles.length > 0 && (
+                {Object.keys(uploadedFiles).length > 0 && (
                     <div className="mt-6 bg-white rounded-lg shadow-sm border p-4">
                         <h4 className="font-semibold text-gray-900 mb-3">Uploaded Files</h4>
                         <div className="flex flex-wrap gap-2">
-                            {uploadedFiles.map((fileName) => (
+                            {Object.keys(uploadedFiles).map((fileName) => (
                                 <div key={fileName} className="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
                                     <FileText className="text-blue-500" size={16} />
                                     <span className="text-sm font-medium text-gray-900">{fileName}</span>
@@ -274,7 +344,6 @@ const CodeWorkspace: React.FC = () => {
                     </div>
                 )}
 
-                {/* Change Explanation Panel */}
                 <div className="mt-6 bg-white rounded-lg shadow-sm border">
                     <div className="p-4 border-b">
                         <h4 className="font-semibold text-gray-900">Change Explanation</h4>
@@ -283,7 +352,7 @@ const CodeWorkspace: React.FC = () => {
                         {codeChanges ? (
                             <div className="space-y-3">
                                 <div className="text-sm text-gray-600">
-                                    <strong>Translation Summary:</strong>
+                                    <strong>Translation Summary for {selectedConvertedFileName}:</strong>
                                 </div>
                                 <pre className="p-3 bg-gray-100 text-sm rounded whitespace-pre-wrap text-gray-800 border">
                                     {codeChanges}

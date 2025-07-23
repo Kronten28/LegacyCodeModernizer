@@ -11,6 +11,7 @@ client = OpenAI()
 
 MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4.1")
 
+
 def read_code(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
@@ -20,6 +21,7 @@ def write_tmp(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
 
 def ai_migrate(code):
     system_prompt = (
@@ -34,14 +36,18 @@ def ai_migrate(code):
         f"{code}"
     )
     try:
-        resp = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0,
-        ).choices[0].message.content
+        resp = (
+            client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+            )
+            .choices[0]
+            .message.content
+        )
     except OpenAIError as e:
         raise RuntimeError(f"OpenAI request failed: {e}") from e
     compare_prompt = (
@@ -50,19 +56,25 @@ def ai_migrate(code):
         f"Python2 Code:\n{code}\nPython3 Code:\n{resp}"
     )
     try:
-        compare = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": compare_prompt},
-            ],
-            temperature=0.2,
-        ).choices[0].message.content
+        compare = (
+            client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": compare_prompt},
+                ],
+                temperature=0.2,
+            )
+            .choices[0]
+            .message.content
+        )
     except OpenAIError as e:
         raise RuntimeError(f"OpenAI request failed: {e}") from e
     return (resp, compare)
 
+
 from lib2to3.refactor import RefactoringTool, get_fixers_from_package
+
 
 def run_2to3(src_path, dst_path):
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
@@ -103,6 +115,7 @@ def migrate_code_str(code_str):
         code3 = read_code(dst_path)
         code3_improved = ai_migrate(code3)
         return code3_improved
+
 
 def main():
     src = sys.argv[1]
