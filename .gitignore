@@ -23,6 +23,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-# Python artifacts
+LegacyCodeModernizer.code-workspace
+.venv
+.env
 __pycache__/
 *.py[cod]
