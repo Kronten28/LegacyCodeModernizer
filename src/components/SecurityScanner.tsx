@@ -1,57 +1,12 @@
-
 import React, { useState } from 'react';
 import { Shield, AlertTriangle, CheckCircle, Filter, Info } from 'lucide-react';
-
-interface SecurityIssue {
-  id: string;
-  file: string;
-  line: number;
-  severity: 'high' | 'medium' | 'low';
-  standard: 'HIPAA' | 'ISO27001' | 'General';
-  title: string;
-  description: string;
-  recommendation: string;
-  code: string;
-}
+import { useAppContext, SecurityIssue } from '@/context/AppContext';
 
 const SecurityScanner: React.FC = () => {
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const { latestReport } = useAppContext();
   
-  const securityIssues: SecurityIssue[] = [
-    {
-      id: '1',
-      file: 'user_auth.py',
-      line: 45,
-      severity: 'high',
-      standard: 'HIPAA',
-      title: 'Hardcoded Password',
-      description: 'Password stored as plain text in code violates HIPAA security requirements.',
-      recommendation: 'Use environment variables or secure key management system.',
-      code: 'password = "admin123"  # Flagged line'
-    },
-    {
-      id: '2',
-      file: 'database.py',
-      line: 23,
-      severity: 'medium',
-      standard: 'ISO27001',
-      title: 'SQL Injection Risk',
-      description: 'Direct string concatenation in SQL query may allow injection attacks.',
-      recommendation: 'Use parameterized queries or ORM methods.',
-      code: 'query = "SELECT * FROM users WHERE id = " + user_id'
-    },
-    {
-      id: '3',
-      file: 'file_handler.py',
-      line: 67,
-      severity: 'low',
-      standard: 'General',
-      title: 'Insufficient Input Validation',
-      description: 'File paths not validated, potential directory traversal risk.',
-      recommendation: 'Implement proper path validation and sanitization.',
-      code: 'open(user_provided_path, "r")'
-    }
-  ];
+  const securityIssues = latestReport?.securityIssues ?? [];
 
   const filteredIssues = selectedFilter === 'all' 
     ? securityIssues 
@@ -74,6 +29,18 @@ const SecurityScanner: React.FC = () => {
       default: return <CheckCircle className="text-gray-500" size={16} />;
     }
   };
+
+  if (!latestReport) {
+     return (
+      <div className="p-6 bg-gray-50 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Shield className="mx-auto text-gray-400 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-700">No Security Scan Data</h2>
+          <p className="text-gray-500 mt-2">Convert a file to see the security analysis.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">

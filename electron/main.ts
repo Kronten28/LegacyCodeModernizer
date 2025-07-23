@@ -9,7 +9,7 @@ function startBackend() {
   console.log(
     `[Electron Main]: Attempting to start backend from: ${backendDir}/api.py`
   );
-  backendProc = spawn("python3", ["api.py"], {
+  backendProc = spawn("python", ["api.py"], {
     cwd: backendDir,
     stdio: "pipe",
   });

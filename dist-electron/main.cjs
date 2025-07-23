@@ -41,7 +41,7 @@ let backendProc;
 function startBackend() {
     const backendDir = path.resolve(__dirname, "../backend");
     console.log(`[Electron Main]: Attempting to start backend from: ${backendDir}/api.py`);
-    backendProc = (0, child_process_1.spawn)("python3", ["api.py"], {
+    backendProc = (0, child_process_1.spawn)("python", ["api.py"], {
         cwd: backendDir,
         stdio: "pipe",
     });

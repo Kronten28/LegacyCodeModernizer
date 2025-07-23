@@ -1,26 +1,35 @@
-
 import React from 'react';
 import { Download, FileText, CheckCircle, AlertTriangle, Clock, FileCode } from 'lucide-react';
+import { useAppContext } from '@/context/AppContext';
 
 const SummaryReport: React.FC = () => {
+  const { latestReport } = useAppContext();
+
+  if (!latestReport) {
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <FileText className="mx-auto text-gray-400 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-700">No Report Generated</h2>
+          <p className="text-gray-500 mt-2">Please convert a file in the workspace to see a summary.</p>
+        </div>
+      </div>
+    );
+  }
+
   const reportData = {
-    timestamp: new Date().toLocaleString(),
-    totalFiles: 15,
-    successfulConversions: 14,
-    failedConversions: 1,
-    executionTime: '12.4 seconds',
+    timestamp: latestReport.timestamp.toLocaleString(),
+    totalFiles: 1, // Represents the single file converted
+    successfulConversions: latestReport.success ? 1 : 0,
+    failedConversions: latestReport.success ? 0 : 1,
+    executionTime: `${(latestReport.executionTime / 1000).toFixed(2)} seconds`,
     securityIssues: {
-      high: 1,
-      medium: 1,
-      low: 1
+      high: latestReport.securityIssues.filter(i => i.severity === 'high').length,
+      medium: latestReport.securityIssues.filter(i => i.severity === 'medium').length,
+      low: latestReport.securityIssues.filter(i => i.severity === 'low').length
     },
-    majorChanges: [
-      'Updated print statements to print() functions',
-      'Replaced urllib2 with urllib.request',
-      'Updated ConfigParser to configparser',
-      'Fixed integer division operators',
-      'Updated exception handling syntax'
-    ]
+    // A simple way to get major changes from the explanation
+    majorChanges: latestReport.explanation.split('\n').filter(line => line.startsWith('* ')).map(line => line.substring(2))
   };
 
   const successRate = ((reportData.successfulConversions / reportData.totalFiles) * 100).toFixed(1);
@@ -32,17 +41,6 @@ const SummaryReport: React.FC = () => {
           <div className="flex items-center gap-3">
             <FileText className="text-blue-600" size={28} />
             <h2 className="text-3xl font-bold text-gray-900">Conversion Summary</h2>
-          </div>
-          
-          <div className="flex gap-3">
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-              <Download size={16} />
-              Export PDF
-            </button>
-            <button className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2">
-              <Download size={16} />
-              Export JSON
-            </button>
           </div>
         </div>
 
@@ -139,11 +137,11 @@ const SummaryReport: React.FC = () => {
             </div>
             <div>
               <span className="text-gray-600">AI Model:</span>
-              <span className="ml-2 font-medium">GPT-4.0</span>
+              <span className="ml-2 font-medium">GPT-4.1</span>
             </div>
             <div>
               <span className="text-gray-600">Version:</span>
-              <span className="ml-2 font-medium">Legacy Code Modernizer v2.1.0</span>
+              <span className="ml-2 font-medium">Legacy Code Modernizer v1.0.0</span>
             </div>
             <div>
               <span className="text-gray-600">Compliance Standards:</span>

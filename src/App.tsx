@@ -11,6 +11,7 @@ import SecurityScanner from "./components/SecurityScanner";
 import SummaryReport from "./components/SummaryReport";
 import Settings from "./components/Settings";
 import NotFound from "./pages/NotFound";
+import { AppProvider } from "./context/AppContext";
 
 const queryClient = new QueryClient();
 
@@ -19,6 +20,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <AppProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
@@ -31,6 +33,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      </AppProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
