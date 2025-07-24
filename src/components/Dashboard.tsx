@@ -93,7 +93,7 @@ const Dashboard: React.FC = () => {
             <div className="space-y-3">
               <button
                 className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
-                onClick={() => navigate("/upload")}
+                onClick={() => navigate("/workspace")}
               >
                 Convert New Files
               </button>
