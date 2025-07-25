@@ -29,3 +29,5 @@ LegacyCodeModernizer.code-workspace
 __pycache__/
 *.py[cod]
 .python-version
+
+target/
