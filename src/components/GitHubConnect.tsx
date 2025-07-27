@@ -10,6 +10,7 @@ const GitHubConnect: React.FC = () => {
   const [pythonFiles, setPythonFiles] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
+  const [fileContentsMap, setFileContentsMap] = useState<Record<string, string>>({});
   const navigate = useNavigate();
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -50,6 +51,7 @@ const GitHubConnect: React.FC = () => {
 
     const { owner, repo } = parsed;
     const result: string[] = [];
+    const contents: Record<string, string> = {};
 
     const traverse = async (path = "") => {
       const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
@@ -62,6 +64,11 @@ const GitHubConnect: React.FC = () => {
           await traverse(item.path);
         } else if (item.type === "file" && item.name.endsWith(".py")) {
           result.push(item.path);
+          const fileRes = await axios.get(item.url, {
+            headers: { Authorization: `token ${accessToken}` },
+          });
+          const content = atob(fileRes.data.content);
+          contents[item.path] = content;
         }
       }
     };
@@ -69,7 +76,9 @@ const GitHubConnect: React.FC = () => {
     try {
       await traverse();
       setPythonFiles(result);
+      setFileContentsMap(contents);
       setSelectedFile(result[0] || null); // auto-select first file
+      setFileContent(result[0] ? contents[result[0]] : "");
     } catch (err) {
       console.error(err);
       alert("Failed to load files");
@@ -153,18 +162,13 @@ const GitHubConnect: React.FC = () => {
                 </pre>
                 <button
   onClick={() => {
-    if (!selectedFile || !fileContent) return;
-
-    // Build files map (currently only one file shown — could be extended)
-    const filesToPass = {
-      [selectedFile]: fileContent,
-    };
+    if (Object.keys(fileContentsMap).length === 0) return;
 
     navigate("/workspace", {
       state: {
         code: "", // optional fallback
-        files: filesToPass,
-        defaultFile: selectedFile,
+        files: fileContentsMap,
+        defaultFile: selectedFile || Object.keys(fileContentsMap)[0],
       },
     });
   }}
