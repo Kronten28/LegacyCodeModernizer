@@ -62,7 +62,8 @@ const GitHubConnect: React.FC = () => {
       for (const item of res.data) {
         if (item.type === "dir") {
           await traverse(item.path);
-        } else if (item.type === "file" && item.name.endsWith(".py")) {
+        } 
+        else if (item.type === "file" && item.name.endsWith(".py")) {
           result.push(item.path);
           const fileRes = await axios.get(item.url, {
             headers: { Authorization: `token ${accessToken}` },
@@ -89,6 +90,7 @@ const GitHubConnect: React.FC = () => {
     if (!accessToken || !repoUrl) return;
 
     const parsed = parseGitHubUrl(repoUrl);
+
     if (!parsed) return;
 
     const { owner, repo } = parsed;
@@ -161,22 +163,21 @@ const GitHubConnect: React.FC = () => {
                   {fileContent || "Loading..."}
                 </pre>
                 <button
-  onClick={() => {
-    if (Object.keys(fileContentsMap).length === 0) return;
+                  onClick={() => {
+                    if (Object.keys(fileContentsMap).length === 0) return;
 
-    navigate("/workspace", {
-      state: {
-        code: "", // optional fallback
-        files: fileContentsMap,
-        defaultFile: selectedFile || Object.keys(fileContentsMap)[0],
-      },
-    });
-  }}
-  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
->
-  Convert GitHub Repository
-</button>
-
+                    navigate("/workspace", {
+                      state: {
+                        code: "", // optional fallback
+                        files: fileContentsMap,
+                        defaultFile: selectedFile || Object.keys(fileContentsMap)[0],
+                      },
+                    });
+                  }}
+                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
+                  >
+                    Convert GitHub Repository
+                </button>
               </div>
             </div>
           )}

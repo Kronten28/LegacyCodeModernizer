@@ -8,17 +8,14 @@ import os
 load_dotenv()
 app = Flask(__name__)
 
-# Allow configuration of CORS origins through environment variable
 allowed_origins = os.getenv("FRONTEND_ORIGIN", "http://localhost:8080")
 
 GITHUB_CLIENT_ID = os.getenv("CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 GITHUB_CALLBACK_URL = os.getenv("GITHUB_CALLBACK_URL", "http://localhost:5000/github/callback")
 
-
 origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
 CORS(app, origins=origins)
-
 
 @app.route("/migrate", methods=["POST"])
 def migrate():
@@ -30,8 +27,6 @@ def migrate():
         return jsonify({"status": "success", "result": result[0], "explain": result[1]})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
 
 @app.route("/github/login")
 def github_login():
@@ -60,7 +55,6 @@ def github_callback():
     if not access_token:
         return "<script>window.close();</script>"
 
-    # This will send the token back to the opener window (your React app)
     return f"""
     <html>
         <body>
@@ -74,9 +68,6 @@ def github_callback():
         </body>
     </html>
     """
-
-
-
 
 if __name__ == "__main__":
     app.run(port=5000)

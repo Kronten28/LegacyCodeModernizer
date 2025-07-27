@@ -1,6 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
 import {
-  Upload,
   Download,
   Copy,
   RotateCcw,
@@ -43,7 +42,8 @@ const CodeWorkspace: React.FC = () => {
     if (githubFiles && Object.keys(githubFiles).length > 0) {
       setUploadedFiles(githubFiles);
       setSelectedFileName(githubDefaultFile || Object.keys(githubFiles)[0]);
-    } else if (passedCode && Object.keys(uploadedFiles).length === 0 && !selectedFileName) {
+    } 
+    else if (passedCode && Object.keys(uploadedFiles).length === 0 && !selectedFileName) {
       const initialFileName = "pasted_code.py";
       setUploadedFiles({ [initialFileName]: passedCode });
       setSelectedFileName(initialFileName);
