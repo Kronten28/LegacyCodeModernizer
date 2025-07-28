@@ -41,7 +41,6 @@ const GitHubConnect: React.FC = () => {
   };
 
   const fetchPythonFiles = async () => {
-    if (!accessToken) return;
 
     const parsed = parseGitHubUrl(repoUrl);
     if (!parsed) {
@@ -56,7 +55,7 @@ const GitHubConnect: React.FC = () => {
     const traverse = async (path = "") => {
       const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
       const res = await axios.get(url, {
-        headers: { Authorization: `token ${accessToken}` },
+        headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
       });
 
       for (const item of res.data) {
@@ -66,7 +65,7 @@ const GitHubConnect: React.FC = () => {
         else if (item.type === "file" && item.name.endsWith(".py")) {
           result.push(item.path);
           const fileRes = await axios.get(item.url, {
-            headers: { Authorization: `token ${accessToken}` },
+            headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
           });
           const content = atob(fileRes.data.content);
           contents[item.path] = content;
@@ -78,7 +77,7 @@ const GitHubConnect: React.FC = () => {
       await traverse();
       setPythonFiles(result);
       setFileContentsMap(contents);
-      setSelectedFile(result[0] || null); // auto-select first file
+      setSelectedFile(result[0] || null);
       setFileContent(result[0] ? contents[result[0]] : "");
     } catch (err) {
       console.error(err);
@@ -120,13 +119,18 @@ const GitHubConnect: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {!accessToken ? (
-        <button onClick={handleLogin} className="px-4 py-2 bg-black text-white rounded-lg">
-          Connect GitHub
-        </button>
-      ) : (
         <>
           <div>
+            {accessToken ?(
+              <p className="text-green-600 text-md">Authenticated with GitHub</p>):(
+                <div>
+                  <p className="text-black-500 text-md">You can access public repos without logging in.</p>
+                  <button onClick={handleLogin} className="px-4 py-2 bg-black text-white rounded-lg">
+                    Connect GitHub
+                  </button>
+                </div>  
+            )}
+            
             <label className="block font-medium mb-2">Paste GitHub Repo URL:</label>
             <input
               value={repoUrl}
@@ -182,7 +186,7 @@ const GitHubConnect: React.FC = () => {
             </div>
           )}
         </>
-      )}
+      
     </div>
   );
 };
