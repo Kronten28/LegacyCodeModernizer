@@ -10,6 +10,7 @@ import CodeWorkspace from "./components/CodeWorkspace";
 import SecurityScanner from "./components/SecurityScanner";
 import SummaryReport from "./components/SummaryReport";
 import Settings from "./components/Settings";
+import GitHubConnect from "./components/GitHubConnect";
 import NotFound from "./pages/NotFound";
 import { AppProvider } from "./context/AppContext";
 
@@ -27,6 +28,7 @@ const App = () => (
             <Route index element={<Dashboard />} />
             <Route path="workspace" element={<CodeWorkspace />} />
             <Route path="security" element={<SecurityScanner />} />
+            <Route path="connect" element={<GitHubConnect />} />
             <Route path="report" element={<SummaryReport />} />
             <Route path="settings" element={<Settings />} />
           </Route>

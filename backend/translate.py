@@ -32,7 +32,7 @@ def ai_migrate(code):
         "Label all variable types explicitly and add type annotations to all functions and variables. "
         "Remove unnecessary comments, whitespace and unused imports. "
         "Improve the code to make it idiomatic and robust in Python 3. "
-        "Respond only with the improved code in a Python code block.\n\n"
+        "Respond ONLY with the raw Python code, without any markdown formatting or triple backticks.\n\n"
         f"{code}"
     )
     try:
