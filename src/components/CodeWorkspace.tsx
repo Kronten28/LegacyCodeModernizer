@@ -39,6 +39,7 @@ interface GitHubFile {
 }
 
 const CodeWorkspace: React.FC = () => {
+  const BACKEND_URL = "http://localhost:5000";
   const [dragOver, setDragOver] = useState(false);
   const location = useLocation();
   const passedCode = location.state?.code || "";
@@ -55,8 +56,10 @@ const CodeWorkspace: React.FC = () => {
   const [githubFileTree, setGithubFileTree] = useState<GitHubFile[]>([]);
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
-
+  const [repoLoadFailed, setRepoLoadFailed] = useState(false);
   const { addReport, latestReport } = useAppContext();
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [repos, setRepos] = useState<any[]>([]);
 
   const python2Code = selectedFileName ? uploadedFiles[selectedFileName] || "" : passedCode;
   const python3Code = selectedFileName && convertedFiles[selectedFileName]
@@ -224,7 +227,9 @@ const CodeWorkspace: React.FC = () => {
     try {
       const buildFileTree = async (path = ""): Promise<GitHubFile[]> => {
         const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-        const res = await axios.get(url);
+        const res = await axios.get(url, {
+        headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
+        });
         
         const files: GitHubFile[] = [];
         for (const item of res.data) {
@@ -240,7 +245,9 @@ const CodeWorkspace: React.FC = () => {
             file.children = await buildFileTree(item.path);
           } else if (item.name.endsWith(".py")) {
             // Fetch content for Python files
-            const fileRes = await axios.get(item.url);
+            const fileRes = await axios.get(item.url, {
+            headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
+            });
             file.content = atob(fileRes.data.content);
           }
 
@@ -254,8 +261,9 @@ const CodeWorkspace: React.FC = () => {
       toast("Repository loaded successfully!");
     } catch (error) {
       console.error("Failed to fetch repository:", error);
+      setRepoLoadFailed(true);
       toast("Failed to load repository", { 
-        description: "Please check the URL and try again." 
+        description: "Please check the URL or authenticate with GitHub" 
       });
     } finally {
       setIsLoadingRepo(false);
@@ -319,6 +327,29 @@ const CodeWorkspace: React.FC = () => {
     setGithubModalOpen(false);
     toast(`Imported ${Object.keys(selectedFiles).length} file(s)`);
   };
+
+  const fetchRepos = async (token: string) => {
+      const res = await axios.get("https://api.github.com/user/repos", {
+        headers: { Authorization: `token ${token}` },
+      });
+      setRepos(res.data);
+    };
+
+    const handleLogin = () => {
+    window.open(`${BACKEND_URL}/github/login`, "_blank", "width=600,height=700");
+    };
+  useEffect(() => {
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === "github_token" && event.data?.token) {
+          setAccessToken(event.data.token);
+          fetchRepos(event.data.token);
+        }
+      };
+      window.addEventListener("message", handleMessage);
+      return () => window.removeEventListener("message", handleMessage);
+    }, []);
+
+
 
   const renderFileTree = (files: GitHubFile[], depth = 0): React.ReactNode => {
     return files.map(file => (
@@ -421,6 +452,17 @@ const CodeWorkspace: React.FC = () => {
                         >
                           {isLoadingRepo ? <RotateCcw size={16} className="animate-spin" /> : "Load"}
                         </button>
+                        {repoLoadFailed && (
+                          <button
+                            onClick={() => {
+                              handleLogin()
+                              setRepoLoadFailed(false);
+                            }}
+                            className="ml-2 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+                          >
+                            Authenticate
+                          </button>
+                        )}
                       </div>
 
                       {githubFileTree.length > 0 && (
