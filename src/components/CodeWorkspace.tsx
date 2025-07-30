@@ -19,14 +19,14 @@ import { toast } from "@/components/ui/sonner";
 import { useAppContext } from '@/context/AppContext';
 import { useLocation } from "react-router-dom";
 import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface GitHubFile {
   name: string;
@@ -54,7 +54,7 @@ const CodeWorkspace: React.FC = () => {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubFileTree, setGithubFileTree] = useState<GitHubFile[]>([]);
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
-  const [githubDrawerOpen, setGithubDrawerOpen] = useState(false);
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
 
   const { addReport, latestReport } = useAppContext();
 
@@ -316,7 +316,7 @@ const CodeWorkspace: React.FC = () => {
     if (!selectedFileName) {
       setSelectedFileName(Object.keys(selectedFiles)[0]);
     }
-    setGithubDrawerOpen(false);
+    setGithubModalOpen(false);
     toast(`Imported ${Object.keys(selectedFiles).length} file(s)`);
   };
 
@@ -382,20 +382,20 @@ const CodeWorkspace: React.FC = () => {
                 <FileText size={16} /> Python 2 (Legacy)
               </h3>
               <div className="flex gap-2">
-                <Drawer open={githubDrawerOpen} onOpenChange={setGithubDrawerOpen}>
-                  <DrawerTrigger asChild>
+                <Dialog open={githubModalOpen} onOpenChange={setGithubModalOpen}>
+                  <DialogTrigger asChild>
                     <button className="bg-gray-800 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 flex items-center gap-1">
                       <Github size={12} /> GitHub
                     </button>
-                  </DrawerTrigger>
-                  <DrawerContent className="max-h-[80vh]">
-                    <DrawerHeader>
-                      <DrawerTitle>Import from GitHub</DrawerTitle>
-                      <DrawerDescription>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col">
+                    <DialogHeader>
+                      <DialogTitle>Import from GitHub</DialogTitle>
+                      <DialogDescription>
                         Enter a GitHub repository URL to browse and select Python files
-                      </DrawerDescription>
-                    </DrawerHeader>
-                    <div className="p-4 space-y-4">
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
                       <div className="flex gap-2">
                         <div className="flex-1 relative">
                           <input
@@ -424,17 +424,17 @@ const CodeWorkspace: React.FC = () => {
                       </div>
 
                       {githubFileTree.length > 0 && (
-                        <div className="space-y-4">
-                          <div className="border rounded-md p-4 max-h-64 overflow-y-auto">
+                        <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+                          <div className="border rounded-md p-4 flex-1 overflow-y-auto">
                             <div className="text-sm font-medium mb-2">Repository Structure</div>
                             {renderFileTree(githubFileTree)}
                           </div>
-                          <div className="flex justify-between">
-                            <DrawerClose asChild>
+                          <div className="flex justify-between pt-4 border-t">
+                            <DialogClose asChild>
                               <button className="px-4 py-2 border rounded-md text-sm hover:bg-muted">
                                 Cancel
                               </button>
-                            </DrawerClose>
+                            </DialogClose>
                             <button
                               onClick={importSelectedFiles}
                               className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
@@ -445,8 +445,8 @@ const CodeWorkspace: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  </DrawerContent>
-                </Drawer>
+                  </DialogContent>
+                </Dialog>
                 <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 flex items-center gap-1">
                   <FolderOpen size={12} /> Upload
                 </button>
