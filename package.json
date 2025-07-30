@@ -6,9 +6,9 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:8080 && npm run build:electron && cross-env NODE_ENV=development electron ./dist-electron/main.cjs\"",
-    "build:electron": "tsc -p tsconfig.electron.json && node renameMain.cjs",
+    "build:electron": "tsc -p tsconfig.electron.json && node renameMain.cjs && cd ./backend/api_manager && cargo build --release",
     "start": "npm run build:electron && electron ./dist-electron/main.cjs",
-    "build:dev": "vite build --mode development",
+    "build:dev": "vite build --mode development && cd ./backend/api_manager && cargo build --release",
     "lint": "eslint .",
     "preview": "vite preview"
   },
