@@ -22,7 +22,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'workspace', label: 'Code Workspace', icon: Code },
     { id: 'security', label: 'Security Scan', icon: Shield },
-    { id: 'connect', label: 'GitHub Connect', icon: FolderGit },
     { id: 'report', label: 'Summary Report', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
