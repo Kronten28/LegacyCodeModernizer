@@ -7,12 +7,36 @@ import {
   FolderOpen,
   X,
   Play,
+  Github,
+  Folder,
+  File,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import axios from "axios";
 import { saveAs } from "file-saver";
 import { toast } from "@/components/ui/sonner";
 import { useAppContext } from '@/context/AppContext';
 import { useLocation } from "react-router-dom";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
+
+interface GitHubFile {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  content?: string;
+  children?: GitHubFile[];
+  selected?: boolean;
+  expanded?: boolean;
+}
 
 const CodeWorkspace: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
@@ -25,6 +49,12 @@ const CodeWorkspace: React.FC = () => {
   const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>({});
   const [selectedFileName, setSelectedFileName] = useState<string>("");
   const [isConverting, setIsConverting] = useState(false);
+
+  // GitHub integration state
+  const [githubUrl, setGithubUrl] = useState("");
+  const [githubFileTree, setGithubFileTree] = useState<GitHubFile[]>([]);
+  const [isLoadingRepo, setIsLoadingRepo] = useState(false);
+  const [githubDrawerOpen, setGithubDrawerOpen] = useState(false);
 
   const { addReport, latestReport } = useAppContext();
 
@@ -169,6 +199,167 @@ const CodeWorkspace: React.FC = () => {
     saveAs(new Blob([converted], { type: "text/x-python;charset=utf-8" }), filename);
   };
 
+  // GitHub integration methods
+  const parseGitHubUrl = (url: string): { owner: string; repo: string } | null => {
+    const match = url.match(/github\.com\/([^/]+)\/([^/]+)(\/|$)/);
+    if (!match) return null;
+    return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
+  };
+
+  const fetchGitHubRepo = async () => {
+    if (!githubUrl.trim()) {
+      toast("Please enter a GitHub URL");
+      return;
+    }
+
+    const parsed = parseGitHubUrl(githubUrl);
+    if (!parsed) {
+      toast("Invalid GitHub URL");
+      return;
+    }
+
+    setIsLoadingRepo(true);
+    const { owner, repo } = parsed;
+
+    try {
+      const buildFileTree = async (path = ""): Promise<GitHubFile[]> => {
+        const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+        const res = await axios.get(url);
+        
+        const files: GitHubFile[] = [];
+        for (const item of res.data) {
+          const file: GitHubFile = {
+            name: item.name,
+            path: item.path,
+            type: item.type,
+            selected: false,
+            expanded: false,
+          };
+
+          if (item.type === "dir") {
+            file.children = await buildFileTree(item.path);
+          } else if (item.name.endsWith(".py")) {
+            // Fetch content for Python files
+            const fileRes = await axios.get(item.url);
+            file.content = atob(fileRes.data.content);
+          }
+
+          files.push(file);
+        }
+        return files;
+      };
+
+      const files = await buildFileTree();
+      setGithubFileTree(files);
+      toast("Repository loaded successfully!");
+    } catch (error) {
+      console.error("Failed to fetch repository:", error);
+      toast("Failed to load repository", { 
+        description: "Please check the URL and try again." 
+      });
+    } finally {
+      setIsLoadingRepo(false);
+    }
+  };
+
+  const toggleFileSelection = (path: string) => {
+    const updateSelection = (files: GitHubFile[]): GitHubFile[] => {
+      return files.map(file => {
+        if (file.path === path) {
+          return { ...file, selected: !file.selected };
+        }
+        if (file.children) {
+          return { ...file, children: updateSelection(file.children) };
+        }
+        return file;
+      });
+    };
+    setGithubFileTree(updateSelection(githubFileTree));
+  };
+
+  const toggleFolderExpansion = (path: string) => {
+    const updateExpansion = (files: GitHubFile[]): GitHubFile[] => {
+      return files.map(file => {
+        if (file.path === path && file.type === 'dir') {
+          return { ...file, expanded: !file.expanded };
+        }
+        if (file.children) {
+          return { ...file, children: updateExpansion(file.children) };
+        }
+        return file;
+      });
+    };
+    setGithubFileTree(updateExpansion(githubFileTree));
+  };
+
+  const importSelectedFiles = () => {
+    const getSelectedFiles = (files: GitHubFile[]): Record<string, string> => {
+      let selected: Record<string, string> = {};
+      for (const file of files) {
+        if (file.selected && file.type === 'file' && file.content) {
+          selected[file.name] = file.content;
+        }
+        if (file.children) {
+          selected = { ...selected, ...getSelectedFiles(file.children) };
+        }
+      }
+      return selected;
+    };
+
+    const selectedFiles = getSelectedFiles(githubFileTree);
+    if (Object.keys(selectedFiles).length === 0) {
+      toast("No files selected", { description: "Please select Python files to import." });
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, ...selectedFiles }));
+    if (!selectedFileName) {
+      setSelectedFileName(Object.keys(selectedFiles)[0]);
+    }
+    setGithubDrawerOpen(false);
+    toast(`Imported ${Object.keys(selectedFiles).length} file(s)`);
+  };
+
+  const renderFileTree = (files: GitHubFile[], depth = 0): React.ReactNode => {
+    return files.map(file => (
+      <div key={file.path} style={{ marginLeft: `${depth * 16}px` }}>
+        <div className="flex items-center py-1 hover:bg-muted/50 rounded px-2">
+          {file.type === 'dir' ? (
+            <>
+              <button
+                onClick={() => toggleFolderExpansion(file.path)}
+                className="mr-1 p-1 hover:bg-muted rounded"
+              >
+                {file.expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+              <Folder size={16} className="mr-2 text-blue-500" />
+              <span className="text-sm">{file.name}</span>
+            </>
+          ) : (
+            <>
+              <div className="w-6"></div>
+              {file.name.endsWith('.py') && (
+                <input
+                  type="checkbox"
+                  checked={file.selected || false}
+                  onChange={() => toggleFileSelection(file.path)}
+                  className="mr-2"
+                />
+              )}
+              <File size={16} className="mr-2 text-gray-500" />
+              <span className="text-sm">{file.name}</span>
+            </>
+          )}
+        </div>
+        {file.type === 'dir' && file.expanded && file.children && (
+          <div>
+            {renderFileTree(file.children, depth + 1)}
+          </div>
+        )}
+      </div>
+    ));
+  };
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -191,6 +382,71 @@ const CodeWorkspace: React.FC = () => {
                 <FileText size={16} /> Python 2 (Legacy)
               </h3>
               <div className="flex gap-2">
+                <Drawer open={githubDrawerOpen} onOpenChange={setGithubDrawerOpen}>
+                  <DrawerTrigger asChild>
+                    <button className="bg-gray-800 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 flex items-center gap-1">
+                      <Github size={12} /> GitHub
+                    </button>
+                  </DrawerTrigger>
+                  <DrawerContent className="max-h-[80vh]">
+                    <DrawerHeader>
+                      <DrawerTitle>Import from GitHub</DrawerTitle>
+                      <DrawerDescription>
+                        Enter a GitHub repository URL to browse and select Python files
+                      </DrawerDescription>
+                    </DrawerHeader>
+                    <div className="p-4 space-y-4">
+                      <div className="flex gap-2">
+                        <div className="flex-1 relative">
+                          <input
+                            type="text"
+                            placeholder="https://github.com/username/repository"
+                            value={githubUrl}
+                            onChange={(e) => setGithubUrl(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm"
+                          />
+                          {githubUrl && (
+                            <button
+                              onClick={() => setGithubUrl("")}
+                              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                              <X size={16} />
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          onClick={fetchGitHubRepo}
+                          disabled={isLoadingRepo}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {isLoadingRepo ? <RotateCcw size={16} className="animate-spin" /> : "Load"}
+                        </button>
+                      </div>
+
+                      {githubFileTree.length > 0 && (
+                        <div className="space-y-4">
+                          <div className="border rounded-md p-4 max-h-64 overflow-y-auto">
+                            <div className="text-sm font-medium mb-2">Repository Structure</div>
+                            {renderFileTree(githubFileTree)}
+                          </div>
+                          <div className="flex justify-between">
+                            <DrawerClose asChild>
+                              <button className="px-4 py-2 border rounded-md text-sm hover:bg-muted">
+                                Cancel
+                              </button>
+                            </DrawerClose>
+                            <button
+                              onClick={importSelectedFiles}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                            >
+                              Import Selected Files
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </DrawerContent>
+                </Drawer>
                 <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 flex items-center gap-1">
                   <FolderOpen size={12} /> Upload
                 </button>
