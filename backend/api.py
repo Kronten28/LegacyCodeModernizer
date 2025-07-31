@@ -5,6 +5,7 @@ from translate import migrate_code_str
 from dotenv import load_dotenv
 import os
 import time
+from api_save import save_api_key
 from datetime import datetime
 
 load_dotenv()
@@ -126,6 +127,16 @@ def migrate():
             "explain": result[1],  # explanation
             "security_issues": result[2]  # security issues
         })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/save")
+def api_save():
+    provider = request.json.get("provider")
+    api = request.json.get("api")
+    try:
+        save_api_key(provider, api)
+        return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
