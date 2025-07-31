@@ -1,52 +1,79 @@
+# Legacy Code Modernizer
 
-## Project info
+## Overview
 
-## How can I edit this code?
+The **Legacy Code Modernizer** is a desktop application designed to automatically convert legacy Python 2 code to modern, secure, and idiomatic Python 3. It also provides a comprehensive security analysis of the converted code, identifying potential vulnerabilities and suggesting improvements. This tool is ideal for developers looking to modernize their Python projects, improve code quality, and enhance security.
 
-There are several ways of editing your application.
+## Features
 
-**Use your preferred IDE**
+* **Code Conversion**: Converts Python 2 code to Python 3 with type hints.
+* **Security Analysis**: Identifies security vulnerabilities, bad practices, and compliance risks in the converted code.
+* **AI-Powered**: Leverages the power of AI to provide intelligent code modernization and security auditing.
+* **User-Friendly Interface**: A simple and intuitive desktop application built with Electron and React.
+* **GitHub Integration**: Allows users to import and convert files directly from their GitHub repositories.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Technologies Used
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+This project is built with a modern tech stack, including:
 
-Follow these steps:
+* **Frontend**:
+    * [Vite](https://vitejs.dev/)
+    * [TypeScript](https://www.typescriptlang.org/)
+    * [React](https://reactjs.org/)
+    * [shadcn-ui](https://ui.shadcn.com/)
+    * [Tailwind CSS](https://tailwindcss.com/)
+* **Backend**:
+    * [Flask](https://flask.palletsprojects.com/)
+    * [Python](https://www.python.org/)
+    * [OpenAI GPT-4.1](https://openai.com/gpt-4/)
+* **Desktop App**:
+    * [Electron](https://www.electronjs.org/)
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Getting Started
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+To get started with the Legacy Code Modernizer, follow these steps:
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Prerequisites
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+* Node.js and npm installed. You can use [nvm](https://github.com/nvm-sh/nvm#installing-and-updating) to manage your Node.js versions.
+* Python 3 installed.
+* Rust and Cargo for the `api_manager` CLI tool.
 
-**Edit a file directly in GitHub**
+### Installation and Running
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1.  **Clone the repository:**
 
-**Use GitHub Codespaces**
+    ```sh
+    git clone [https://github.com/kronten28/legacycodemodernizer.git](https://github.com/kronten28/legacycodemodernizer.git)
+    ```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+2.  **Navigate to the project directory:**
 
-## What technologies are used for this project?
+    ```sh
+    cd legacycodemodernizer
+    ```
 
-This project is built with:
+3.  **Install the necessary dependencies:**
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+    ```sh
+    npm install
+    ```
+
+4.  **Start the development server:**
+
+    ```sh
+    npm run dev
+    ```
+
+This will start the Vite development server, build the Electron app, and launch the Legacy Code Modernizer application.
+
+## How It Works
+
+The Legacy Code Modernizer uses a combination of traditional and AI-powered techniques to modernize your code:
+
+1.  **Initial Conversion**: The application first uses the `2to3` library to perform an initial conversion of the Python 2 code to Python 3.
+2.  **AI Modernization**: The converted code is then passed to the AI model (GPT-4.1) to add type hints, remove unnecessary comments, and improve the code to make it more idiomatic and robust in Python 3.
+3.  **Security Analysis**: The modernized code is then analyzed for security vulnerabilities, bad practices, and compliance risks using the AI model.
+4.  **Reporting**: The application provides a detailed report of the changes made to the code, as well as any security issues that were found.
+
+This multi-step process ensures that your code is not only compatible with Python 3 but also secure, efficient, and easy to maintain.
