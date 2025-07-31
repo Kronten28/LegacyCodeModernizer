@@ -1,15 +1,37 @@
 import os
 import sys
 import subprocess
+import json
 from openai import OpenAI, OpenAIError
-from dotenv import load_dotenv
 import tempfile
 
-load_dotenv()
-OpenAI.api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI()
 
-MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-4.1")
+def fetch_api_key(provider: str) -> str:
+    cmd = ["./api_manager/target/release/api_manager", "-g", provider]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr or ""
+        raise RuntimeError(
+            f"Fail to run api_manager, provider={provider}, stderr: {stderr}"
+        ) from e
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}")
+    if data.get("provider") == provider and data.get("status") == "success":
+        key = data.get("key")
+        if key:
+            return key
+
+    raise RuntimeError(
+        f"didn't provider={provider} 且 status=success 的 key, output: {result.stdout}"
+    )
+
+
+client = OpenAI(api_key=fetch_api_key("openai"))
+MODEL_NAME = "gpt-4.1"
 
 
 def read_code(path):
