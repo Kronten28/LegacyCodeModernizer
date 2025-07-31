@@ -4,6 +4,7 @@ import subprocess
 import json
 from openai import OpenAI, OpenAIError
 import tempfile
+from security_check import ai_security_check
 
 
 def fetch_api_key(provider: str) -> str:
@@ -139,11 +140,25 @@ def migrate_code_str(code_str):
         return code3_improved
 
 
+def migrate_code_str(code_str, filename="code.py"):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_path = os.path.join(tmpdir, "src.py")
+        dst_path = os.path.join(tmpdir, "dst.py")
+        with open(src_path, "w", encoding="utf-8") as f:
+            f.write(code_str)
+        run_2to3(src_path, dst_path)
+        code3 = read_code(dst_path)
+        code3_improved, explanation = ai_migrate(code3)
+        security_issues = ai_security_check(code3_improved, filename)
+        
+        return code3_improved, explanation, security_issues
+
+
 def main():
     src = sys.argv[1]
     if os.path.isfile(src):
         res = migrate_code_str(read_code(src))
-        print(f"Code: \n{res[0]}\nExplain: {res[1]}")
+        print(f"Code: \n{res[0]}\nExplain: {res[1]}\nSecurity Issues: {res[2]}")
 
 
 if __name__ == "__main__":

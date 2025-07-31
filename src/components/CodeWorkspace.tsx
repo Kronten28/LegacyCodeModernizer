@@ -16,8 +16,8 @@ import {
 import axios from "axios";
 import { saveAs } from "file-saver";
 import { toast } from "@/components/ui/sonner";
-import { useAppContext } from '@/context/AppContext';
-import { useLocation } from "react-router-dom";
+import { useAppContext, SecurityIssue } from '@/context/AppContext';
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogClose,
@@ -42,13 +42,18 @@ const CodeWorkspace: React.FC = () => {
   const BACKEND_URL = "http://localhost:5000";
   const [dragOver, setDragOver] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const passedCode = location.state?.code || "";
   const githubFiles = location.state?.files || null;
   const githubDefaultFile = location.state?.defaultFile || "";
 
-  const [uploadedFiles, setUploadedFiles] = useState<Record<string, string>>({});
-  const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>({});
-  const [selectedFileName, setSelectedFileName] = useState<string>("");
+  // Get context
+  const { addReport, latestReport, workspaceState, updateWorkspaceState } = useAppContext();
+
+  // Initialize state from context or defaults
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, string>>(workspaceState.uploadedFiles);
+  const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>(workspaceState.convertedFiles);
+  const [selectedFileName, setSelectedFileName] = useState<string>(workspaceState.selectedFileName);
   const [isConverting, setIsConverting] = useState(false);
 
   // GitHub integration state
@@ -57,7 +62,6 @@ const CodeWorkspace: React.FC = () => {
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [repoLoadFailed, setRepoLoadFailed] = useState(false);
-  const { addReport, latestReport } = useAppContext();
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [repos, setRepos] = useState<any[]>([]);
 
@@ -71,15 +75,37 @@ const CodeWorkspace: React.FC = () => {
   const leftPanelRef = useRef<HTMLTextAreaElement | null>(null);
   const rightPanelRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Update context whenever state changes
   useEffect(() => {
+    updateWorkspaceState({
+      uploadedFiles,
+      convertedFiles,
+      selectedFileName,
+    });
+  }, [uploadedFiles, convertedFiles, selectedFileName]);
+
+  // Handle initial state from navigation or persisted state
+  useEffect(() => {
+    // If coming from navigation with new data
     if (githubFiles && Object.keys(githubFiles).length > 0) {
       setUploadedFiles(githubFiles);
       setSelectedFileName(githubDefaultFile || Object.keys(githubFiles)[0]);
+      updateWorkspaceState({
+        githubFiles,
+        githubDefaultFile,
+      });
     } 
+    // If there's passed code and no existing files
     else if (passedCode && Object.keys(uploadedFiles).length === 0 && !selectedFileName) {
       const initialFileName = "pasted_code.py";
       setUploadedFiles({ [initialFileName]: passedCode });
       setSelectedFileName(initialFileName);
+    }
+    // If returning to the workspace with existing state
+    else if (workspaceState.uploadedFiles && Object.keys(workspaceState.uploadedFiles).length > 0) {
+      setUploadedFiles(workspaceState.uploadedFiles);
+      setConvertedFiles(workspaceState.convertedFiles);
+      setSelectedFileName(workspaceState.selectedFileName);
     }
   }, []);
 
@@ -164,20 +190,47 @@ const CodeWorkspace: React.FC = () => {
     }
     setIsConverting(true);
     const newConvertedFiles: Record<string, string> = {};
+    let totalSecurityIssues: SecurityIssue[] = [];
+    
     for (const [fileName, fileContent] of Object.entries(uploadedFiles)) {
       const startTime = Date.now();
       try {
-        const res = await axios.post("http://localhost:5000/migrate", { code: fileContent });
+        const res = await axios.post(`${BACKEND_URL}/migrate`, { 
+          code: fileContent,
+          filename: fileName 
+        });
         const endTime = Date.now();
+        
         newConvertedFiles[fileName] = res.data.result || "";
+        
+        // Process security issues
+        const securityIssues: SecurityIssue[] = res.data.security_issues || [];
+        totalSecurityIssues = [...totalSecurityIssues, ...securityIssues];
+        
         addReport({
           success: true,
           executionTime: endTime - startTime,
           originalCode: fileContent,
           convertedCode: res.data.result,
           explanation: res.data.explain || "",
-          securityIssues: [],
+          securityIssues: securityIssues,
         });
+        
+        // If there are security issues, show a notification
+        if (securityIssues.length > 0) {
+          const highSeverityCount = securityIssues.filter(i => i.severity === 'high').length;
+          const message = highSeverityCount > 0 
+            ? `Found ${securityIssues.length} security issues (${highSeverityCount} high severity)`
+            : `Found ${securityIssues.length} security issues`;
+            
+          toast(message, { 
+            description: "Click on Security Scan to view details",
+            action: {
+              label: "View",
+              onClick: () => navigate("/security")
+            }
+          });
+        }
       } catch (e) {
         const endTime = Date.now();
         const message = e instanceof Error ? e.message : String(e);
@@ -192,9 +245,15 @@ const CodeWorkspace: React.FC = () => {
         });
       }
     }
+    
     setConvertedFiles(newConvertedFiles);
     setIsConverting(false);
-    toast(`${Object.keys(newConvertedFiles).length} file(s) processed.`);
+    
+    const successCount = Object.keys(newConvertedFiles).filter(
+      key => !newConvertedFiles[key].startsWith('// Error:')
+    ).length;
+    
+    toast(`${successCount}/${Object.keys(newConvertedFiles).length} file(s) converted successfully.`);
   };
 
   const handleDownload = () => {
@@ -205,6 +264,21 @@ const CodeWorkspace: React.FC = () => {
     }
     const filename = selectedFileName.replace(/\.py$/, "_converted.py");
     saveAs(new Blob([converted], { type: "text/x-python;charset=utf-8" }), filename);
+  };
+
+  // Clear workspace state
+  const handleClearWorkspace = () => {
+    setUploadedFiles({});
+    setConvertedFiles({});
+    setSelectedFileName("");
+    updateWorkspaceState({
+      uploadedFiles: {},
+      convertedFiles: {},
+      selectedFileName: "",
+      githubFiles: null,
+      githubDefaultFile: "",
+    });
+    toast("Workspace cleared");
   };
 
   // GitHub integration methods
@@ -401,15 +475,50 @@ const CodeWorkspace: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-3xl font-bold text-gray-900">Code Workspace</h2>
-          <button
-            onClick={handleModernize}
-            disabled={isConverting}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
-          >
-            {isConverting ? <RotateCcw size={16} className="animate-spin" /> : <Play size={16} />}
-            {isConverting ? "Converting..." : "Convert to Python 3"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleClearWorkspace}
+              className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 flex items-center gap-2"
+              title="Clear workspace"
+            >
+              <X size={16} />
+              Clear
+            </button>
+            <button
+              onClick={handleModernize}
+              disabled={isConverting}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+            >
+              {isConverting ? <RotateCcw size={16} className="animate-spin" /> : <Play size={16} />}
+              {isConverting ? "Converting..." : "Convert to Python 3"}
+            </button>
+          </div>
         </div>
+
+        {/* Security Alert Banner */}
+        {latestReport && latestReport.securityIssues.length > 0 && (
+          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-yellow-100 p-2 rounded-full">
+                <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h4 className="font-semibold text-yellow-800">Security Issues Detected</h4>
+                <p className="text-sm text-yellow-700">
+                  {latestReport.securityIssues.length} issue(s) found in the converted code
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate("/security")}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-md text-sm hover:bg-yellow-700"
+            >
+              View Details
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[60vh]">
           <div className="bg-white rounded-lg shadow-sm border flex flex-col">
@@ -567,22 +676,179 @@ const CodeWorkspace: React.FC = () => {
 
         {/* Change Explanation Panel */}
         <div className="mt-6 bg-white rounded-lg shadow-sm border">
-          <div className="p-4 border-b">
-            <h4 className="font-semibold text-gray-900">Change Explanation</h4>
+          <div className="p-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+            <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+              Conversion Summary
+            </h4>
           </div>
-          <div className="p-4">
+          <div className="p-6">
             {codeChanges ? (
-              <div className="space-y-3">
-                <div className="text-sm text-gray-600">
-                  <strong>Translation Summary for {selectedFileName}:</strong>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-1 w-1 bg-blue-500 rounded-full"></div>
+                  <span className="text-sm font-medium text-gray-700">
+                    Changes applied to {selectedFileName}
+                  </span>
                 </div>
-                <div className="p-4 bg-gray-100 text-gray-800 text-sm rounded-md border border-gray-200 shadow-sm">
-                  <pre className="whitespace-pre-wrap">{codeChanges}</pre>
+                <div className="relative">
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full"></div>
+                  <div className="pl-6 space-y-3">
+                    {(() => {
+                      const lines = codeChanges.split('\n').filter(line => line.trim());
+                      const processedContent: React.ReactNode[] = [];
+                      let currentSection: { header: string; items: string[] } | null = null;
+
+                      const renderInlineMarkdown = (text: string): React.ReactNode => {
+                        // Replace **text** with bold
+                        let processed = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                        // Replace `code` with inline code
+                        processed = processed.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 bg-gray-100 text-gray-800 rounded text-xs font-mono">$1</code>');
+                        
+                        return <span dangerouslySetInnerHTML={{ __html: processed }} />;
+                      };
+
+                      lines.forEach((line, index) => {
+                        const trimmedLine = line.trim();
+                        
+                        // Check if it's a header (ends with ** and starts with **)
+                        if (trimmedLine.startsWith('**') && trimmedLine.endsWith('**') && trimmedLine.match(/\*\*/g)?.length === 2) {
+                          // Save previous section if exists
+                          if (currentSection && currentSection.items.length > 0) {
+                            processedContent.push(
+                              <div key={`section-${processedContent.length}`} className="mb-4">
+                                <h5 className="text-sm font-semibold text-gray-900 mb-2">
+                                  {currentSection.header}
+                                </h5>
+                                <div className="space-y-2 ml-4">
+                                  {currentSection.items.map((item, idx) => (
+                                    <div key={idx} className="flex items-start gap-2">
+                                      <div className="mt-1.5 flex-shrink-0">
+                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full"></div>
+                                      </div>
+                                      <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                                        {renderInlineMarkdown(item)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+                          
+                          // Start new section
+                          const headerText = trimmedLine.replace(/\*\*/g, '').trim();
+                          currentSection = { header: headerText, items: [] };
+                        }
+                        // Check if it's a main bullet point (starts with * or -)
+                        else if (trimmedLine.startsWith('*') || trimmedLine.startsWith('-')) {
+                          const content = trimmedLine.substring(1).trim();
+                          
+                          // If we're in a section, add as sub-item
+                          if (currentSection) {
+                            currentSection.items.push(content);
+                          } else {
+                            // Otherwise, add as main bullet point
+                            processedContent.push(
+                              <div key={`bullet-${index}`} className="flex items-start gap-3 group">
+                                <div className="mt-1.5 flex-shrink-0">
+                                  <div className="w-2 h-2 bg-blue-500 rounded-full group-hover:ring-4 group-hover:ring-blue-100 transition-all"></div>
+                                </div>
+                                <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                                  {renderInlineMarkdown(content)}
+                                </p>
+                              </div>
+                            );
+                          }
+                        }
+                        // Check if it's a sub-item (starts with spaces/tabs)
+                        else if (currentSection && (line.startsWith('  ') || line.startsWith('\t'))) {
+                          currentSection.items.push(trimmedLine);
+                        }
+                        // Regular text or unformatted content
+                        else if (trimmedLine) {
+                          // Close current section if exists
+                          if (currentSection && currentSection.items.length > 0) {
+                            processedContent.push(
+                              <div key={`section-${processedContent.length}`} className="mb-4">
+                                <h5 className="text-sm font-semibold text-gray-900 mb-2">
+                                  {currentSection.header}
+                                </h5>
+                                <div className="space-y-2 ml-4">
+                                  {currentSection.items.map((item, idx) => (
+                                    <div key={idx} className="flex items-start gap-2">
+                                      <div className="mt-1.5 flex-shrink-0">
+                                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full"></div>
+                                      </div>
+                                      <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                                        {renderInlineMarkdown(item)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                            currentSection = null;
+                          }
+                          
+                          // Add as regular paragraph
+                          processedContent.push(
+                            <p key={`para-${index}`} className="text-sm text-gray-600 leading-relaxed">
+                              {renderInlineMarkdown(trimmedLine)}
+                            </p>
+                          );
+                        }
+                      });
+
+                      // Don't forget to add the last section if it exists
+                      if (currentSection && currentSection.items.length > 0) {
+                        processedContent.push(
+                          <div key={`section-${processedContent.length}`} className="mb-4">
+                            <h5 className="text-sm font-semibold text-gray-900 mb-2">
+                              {currentSection.header}
+                            </h5>
+                            <div className="space-y-2 ml-4">
+                              {currentSection.items.map((item, idx) => (
+                                <div key={idx} className="flex items-start gap-2">
+                                  <div className="mt-1.5 flex-shrink-0">
+                                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full"></div>
+                                  </div>
+                                  <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                                    {renderInlineMarkdown(item)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return processedContent;
+                    })()}
+                  </div>
+                </div>
+                
+                {/* Success indicator */}
+                <div className="mt-6 flex items-center gap-2 text-green-600 bg-green-50 px-4 py-3 rounded-lg">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-medium">Conversion completed successfully</span>
                 </div>
               </div>
             ) : (
-              <div className="text-gray-500 italic text-sm">
-                Run a conversion to see detailed changes and explanations here.
+              <div className="text-center py-8">
+                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                <p className="text-gray-500 text-sm">
+                  No conversion summary available yet
+                </p>
+                <p className="text-gray-400 text-xs mt-1">
+                  Run a conversion to see detailed changes here
+                </p>
               </div>
             )}
           </div>

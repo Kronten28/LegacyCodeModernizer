@@ -5,13 +5,12 @@ use chacha20poly1305::{
 };
 use clap::Parser;
 use dirs::config_dir;
-use keyring::Entry;
 use rand::RngCore;
 use std::{collections::HashMap, fs::create_dir, path::PathBuf};
 
 const SERVICE: &str = "legacy_code_modernizer_api_manager";
-const USERNAME: &str = "default_user";
 const FILE_NAME: &str = "api.enc";
+const KEY_FILE_NAME: &str = "key.txt";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -30,29 +29,53 @@ struct Args {
     #[arg(short, long, conflicts_with = "set")]
     get: bool,
 }
+
 fn is_key_exist() -> bool {
-    Entry::new(SERVICE, USERNAME)
-        .unwrap()
-        .get_password()
-        .is_ok()
+    get_key_path().exists()
 }
-fn setup_key() -> Result<(), ()> {
+
+fn setup_key() -> Result<(), String> {
     let mut key = [0u8; 32];
     rand::rng().fill_bytes(&mut key);
-    let entry = Entry::new(SERVICE, USERNAME).unwrap();
-    entry
-        .set_password(&general_purpose::STANDARD.encode(&key))
-        .unwrap();
+    let encoded_key = general_purpose::STANDARD.encode(&key);
+    std::fs::write(get_key_path(), encoded_key)
+        .map_err(|e| format!("Failed to write key file: {}", e))?;
     Ok(())
 }
-fn load_key() -> Result<[u8; 32], ()> {
-    let entry = Entry::new(SERVICE, USERNAME).unwrap();
-    let b64 = entry.get_password().unwrap();
-    let vec = general_purpose::STANDARD.decode(b64).unwrap();
+
+fn load_key() -> Result<[u8; 32], String> {
+    let encoded_key = std::fs::read_to_string(get_key_path())
+        .map_err(|e| format!("Failed to read key file: {}", e))?;
+    let decoded = general_purpose::STANDARD.decode(encoded_key.trim())
+        .map_err(|e| format!("Failed to decode key: {}", e))?;
+    if decoded.len() != 32 {
+        return Err(format!("Invalid key length: expected 32, got {}", decoded.len()));
+    }
     let mut key = [0u8; 32];
-    key.copy_from_slice(&vec);
+    key.copy_from_slice(&decoded);
     Ok(key)
 }
+
+fn load_config() -> Result<HashMap<String, String>, ()> {
+    let config_path = get_config_path();
+
+    if !config_path.exists() {
+        if !is_key_exist() {
+            setup_key().unwrap();
+        }
+        return Ok(HashMap::new());
+    }
+
+    let key = load_key().unwrap();
+    let encrypted = match std::fs::read_to_string(config_path) {
+        Ok(val) => val,
+        Err(_) => return Err(()), // Should not happen due to the check above, but good practice.
+    };
+
+    let json = decrypt_config(&key, &encrypted).unwrap();
+    Ok(serde_json::from_slice(&json).unwrap())
+}
+
 /// Use XChaCha20-Poly1305 Decrypt
 fn decrypt_config(key: &[u8; 32], ciphertext_b64: &str) -> Result<Vec<u8>, ()> {
     let data = general_purpose::URL_SAFE_NO_PAD
@@ -62,6 +85,7 @@ fn decrypt_config(key: &[u8; 32], ciphertext_b64: &str) -> Result<Vec<u8>, ()> {
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
     Ok(cipher.decrypt(nonce_bytes.into(), ct).unwrap())
 }
+
 /// Use XChaCha20-Poly1305 Encrypt
 fn encrypt_config(key: &[u8; 32], plaintext: &[u8]) -> Result<String, ()> {
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
@@ -72,6 +96,7 @@ fn encrypt_config(key: &[u8; 32], plaintext: &[u8]) -> Result<String, ()> {
     combined.extend(ciphertext);
     Ok(general_purpose::URL_SAFE_NO_PAD.encode(combined))
 }
+
 fn make_folder(path: &PathBuf) -> Result<(), String> {
     if !path.exists() {
         create_dir(path.clone()).unwrap();
@@ -83,6 +108,7 @@ fn make_folder(path: &PathBuf) -> Result<(), String> {
         Err(String::from("Path is not a folder"))
     }
 }
+
 fn get_config_path() -> PathBuf {
     let path = config_dir()
         .expect("Could not get config directory")
@@ -90,30 +116,38 @@ fn get_config_path() -> PathBuf {
     make_folder(&path).unwrap();
     path.join(FILE_NAME)
 }
-fn load_config() -> Result<HashMap<String, String>, ()> {
-    if !is_key_exist() {
-        setup_key().unwrap();
-    }
-    let key = load_key().unwrap();
-    let encrypted = match std::fs::read_to_string(get_config_path()) {
-        Ok(val) => val,
-        Err(_) => return Err(()),
-    };
-    let json = decrypt_config(&key, &encrypted).unwrap();
-    Ok(serde_json::from_slice(&json).unwrap())
+
+fn get_key_path() -> PathBuf {
+    let path = config_dir()
+        .expect("Could not get config directory")
+        .join(SERVICE);
+    make_folder(&path).unwrap();
+    path.join(KEY_FILE_NAME)
 }
-fn save_config(cfg: &HashMap<String, String>) {
+
+fn save_config_safe(cfg: &HashMap<String, String>) -> Result<(), String> {
     if !is_key_exist() {
-        setup_key().unwrap();
+        println!("Setting up new encryption key...");
+        setup_key()?;
     }
-    let key = load_key().unwrap();
-    let new_json = serde_json::to_vec_pretty(&cfg).unwrap();
-    let enc = encrypt_config(&key, &new_json).unwrap();
-    std::fs::write(get_config_path(), enc).unwrap();
+    let key = load_key()?;
+    let new_json = serde_json::to_vec_pretty(&cfg).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let enc = encrypt_config(&key, &new_json).map_err(|_| "Failed to encrypt config".to_string())?;
+    std::fs::write(get_config_path(), enc).map_err(|e| format!("Failed to write config file: {}", e))?;
+    Ok(())
 }
+
 fn main() {
-    let config = load_config().unwrap_or(HashMap::new());
+    let config = match load_config() {
+        Ok(cfg) => cfg,
+        Err(_) => {
+            eprintln!("Error: Failed to load configuration");
+            std::process::exit(1);
+        }
+    };
+    
     let args = Args::parse();
+    
     if args.get {
         println!(
             "{}",
@@ -125,13 +159,30 @@ fn main() {
         );
         return;
     }
+    
+    let api_key = match args.set {
+        Some(key) => key,
+        None => {
+            eprintln!("Error: API key is required when using --set");
+            std::process::exit(1);
+        }
+    };
+    
     let mut config = config;
-    config.insert(args.provider, args.set.unwrap());
-    save_config(&config);
-    println!(
-        "{}",
-        serde_json::json!({
-            "status": "success",
-        })
-    );
+    config.insert(args.provider, api_key);
+    
+    match save_config_safe(&config) {
+        Ok(_) => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "success",
+                })
+            );
+        }
+        Err(e) => {
+            eprintln!("Error: Failed to save configuration: {}", e);
+            std::process::exit(1);
+        }
+    }
 }

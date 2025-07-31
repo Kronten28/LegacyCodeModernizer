@@ -1,7 +1,7 @@
 from flask import Flask, redirect, request, jsonify
 from flask_cors import CORS
 import requests
-from translate import ai_migrate
+from translate import migrate_code_str
 from dotenv import load_dotenv
 import os
 
@@ -20,11 +20,20 @@ CORS(app, origins=origins)
 @app.route("/migrate", methods=["POST"])
 def migrate():
     code = request.json.get("code")
+    filename = request.json.get("filename", "code.py")  # Optional filename
+    
     if not code:
         return jsonify({"status": "error", "message": "No code given"}), 400
+    
     try:
-        result = ai_migrate(code)
-        return jsonify({"status": "success", "result": result[0], "explain": result[1]})
+        # migrate_code_str now returns (converted_code, explanation, security_issues)
+        result = migrate_code_str(code, filename)
+        return jsonify({
+            "status": "success", 
+            "result": result[0],  # converted code
+            "explain": result[1],  # explanation
+            "security_issues": result[2]  # security issues
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
