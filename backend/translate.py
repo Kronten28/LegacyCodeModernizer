@@ -150,7 +150,7 @@ def migrate_code_str(code_str, filename="code.py"):
         code3 = read_code(dst_path)
         code3_improved, explanation = ai_migrate(code3)
         security_issues = ai_security_check(code3_improved, filename)
-        
+
         return code3_improved, explanation, security_issues
 
 

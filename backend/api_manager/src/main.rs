@@ -1,7 +1,7 @@
-use base64::{Engine, engine::general_purpose};
+use base64::{engine::general_purpose, Engine};
 use chacha20poly1305::{
-    Key, XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit},
+    Key, XChaCha20Poly1305, XNonce,
 };
 use clap::Parser;
 use dirs::config_dir;
@@ -46,10 +46,14 @@ fn setup_key() -> Result<(), String> {
 fn load_key() -> Result<[u8; 32], String> {
     let encoded_key = std::fs::read_to_string(get_key_path())
         .map_err(|e| format!("Failed to read key file: {}", e))?;
-    let decoded = general_purpose::STANDARD.decode(encoded_key.trim())
+    let decoded = general_purpose::STANDARD
+        .decode(encoded_key.trim())
         .map_err(|e| format!("Failed to decode key: {}", e))?;
     if decoded.len() != 32 {
-        return Err(format!("Invalid key length: expected 32, got {}", decoded.len()));
+        return Err(format!(
+            "Invalid key length: expected 32, got {}",
+            decoded.len()
+        ));
     }
     let mut key = [0u8; 32];
     key.copy_from_slice(&decoded);
@@ -58,11 +62,10 @@ fn load_key() -> Result<[u8; 32], String> {
 
 fn load_config() -> Result<HashMap<String, String>, ()> {
     let config_path = get_config_path();
-
+    if !is_key_exist() {
+        setup_key().unwrap();
+    }
     if !config_path.exists() {
-        if !is_key_exist() {
-            setup_key().unwrap();
-        }
         return Ok(HashMap::new());
     }
 
@@ -131,9 +134,12 @@ fn save_config_safe(cfg: &HashMap<String, String>) -> Result<(), String> {
         setup_key()?;
     }
     let key = load_key()?;
-    let new_json = serde_json::to_vec_pretty(&cfg).map_err(|e| format!("Failed to serialize config: {}", e))?;
-    let enc = encrypt_config(&key, &new_json).map_err(|_| "Failed to encrypt config".to_string())?;
-    std::fs::write(get_config_path(), enc).map_err(|e| format!("Failed to write config file: {}", e))?;
+    let new_json = serde_json::to_vec_pretty(&cfg)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let enc =
+        encrypt_config(&key, &new_json).map_err(|_| "Failed to encrypt config".to_string())?;
+    std::fs::write(get_config_path(), enc)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
     Ok(())
 }
 
@@ -145,9 +151,9 @@ fn main() {
             std::process::exit(1);
         }
     };
-    
+
     let args = Args::parse();
-    
+
     if args.get {
         println!(
             "{}",
@@ -159,7 +165,7 @@ fn main() {
         );
         return;
     }
-    
+
     let api_key = match args.set {
         Some(key) => key,
         None => {
@@ -167,10 +173,10 @@ fn main() {
             std::process::exit(1);
         }
     };
-    
+
     let mut config = config;
     config.insert(args.provider, api_key);
-    
+
     match save_config_safe(&config) {
         Ok(_) => {
             println!(
