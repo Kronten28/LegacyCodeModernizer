@@ -44,7 +44,7 @@ To get started with the Legacy Code Modernizer, follow these steps:
 1.  **Clone the repository:**
 
     ```sh
-    git clone [https://github.com/kronten28/legacycodemodernizer.git](https://github.com/kronten28/legacycodemodernizer.git)
+    git clone https://github.com/kronten28/legacycodemodernizer.git
     ```
 
 2.  **Navigate to the project directory:**
