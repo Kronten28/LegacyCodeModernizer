@@ -85,11 +85,16 @@ const CodeWorkspace: React.FC = () => {
 
   const handlePython2CodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newCode = e.target.value;
+    
     if (selectedFileName) {
       setUploadedFiles(prev => ({
         ...prev,
         [selectedFileName]: newCode,
       }));
+    } else {
+      const newFileName = "new_file.py";
+      setUploadedFiles({ [newFileName]: newCode });
+      setSelectedFileName(newFileName);
     }
   };
 
