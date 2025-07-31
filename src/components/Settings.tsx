@@ -1,26 +1,147 @@
+import React, { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle } from 'lucide-react';
+import { toast } from "@/components/ui/sonner";
 
-import React, { useState } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Shield } from 'lucide-react';
+interface SettingsState {
+  aiModel: string;
+  language: string;
+  secureMode: boolean;
+  autoScan: boolean;
+  complianceStandards: string[];
+}
 
 const Settings: React.FC = () => {
-  const [settings, setSettings] = useState({
-    aiModel: 'gpt-4.0',
+  const [settings, setSettings] = useState<SettingsState>({
+    aiModel: 'GPT-4.1',
     language: 'en',
     secureMode: true,
     autoScan: true,
     complianceStandards: ['hipaa', 'iso27001']
   });
 
-  const handleSave = () => {
-    console.log('Settings saved:', settings);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+  // Load settings from localStorage on component mount
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = () => {
+    try {
+      const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        setSettings(parsedSettings);
+        setLastSaved(new Date(parsedSettings.lastSaved || Date.now()));
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      toast("Error loading settings", { 
+        description: "Using default settings instead." 
+      });
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    
+    try {
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const settingsToSave = {
+        ...settings,
+        lastSaved: new Date().toISOString()
+      };
+      
+      // Save to localStorage
+      localStorage.setItem('legacyCodeModernizer_settings', JSON.stringify(settingsToSave));
+      
+      // Dispatch custom event to notify other components
+      window.dispatchEvent(new CustomEvent('settingsUpdated', { 
+        detail: settingsToSave 
+      }));
+      
+      setLastSaved(new Date());
+      
+      toast("Settings saved successfully!", {
+        description: "Your preferences have been updated.",
+        icon: <CheckCircle className="text-green-500" size={16} />
+      });
+      
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      toast("Failed to save settings", { 
+        description: "Please try again." 
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleModelChange = (newModel: string) => {
+    setSettings(prev => ({ ...prev, aiModel: newModel }));
+  };
+
+  const handleLanguageChange = (newLanguage: string) => {
+    setSettings(prev => ({ ...prev, language: newLanguage }));
+  };
+
+  const handleSecureModeChange = (enabled: boolean) => {
+    setSettings(prev => ({ ...prev, secureMode: enabled }));
+  };
+
+  const handleAutoScanChange = (enabled: boolean) => {
+    setSettings(prev => ({ ...prev, autoScan: enabled }));
+  };
+
+  const handleComplianceStandardChange = (standard: string, enabled: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      complianceStandards: enabled
+        ? [...prev.complianceStandards, standard]
+        : prev.complianceStandards.filter(s => s !== standard)
+    }));
+  };
+
+  const formatLastSaved = () => {
+    if (!lastSaved) return 'Never';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - lastSaved.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    
+    if (diffSecs < 60) return `${diffSecs} seconds ago`;
+    if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)} minutes ago`;
+    if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)} hours ago`;
+    return lastSaved.toLocaleDateString();
   };
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <SettingsIcon className="text-blue-600" size={28} />
-          <h2 className="text-3xl font-bold text-gray-900">Settings</h2>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <SettingsIcon className="text-blue-600" size={28} />
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900">Settings</h2>
+              {lastSaved && (
+                <p className="text-sm text-gray-500 mt-1">
+                  Last saved: {formatLastSaved()}
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <button 
+            onClick={handleSave}
+            disabled={isSaving}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save size={16} />
+            {isSaving ? "Saving..." : "Save Settings"}
+          </button>
         </div>
 
         <div className="space-y-6">
@@ -37,15 +158,20 @@ const Settings: React.FC = () => {
                 </label>
                 <select 
                   value={settings.aiModel}
-                  onChange={(e) => setSettings({...settings, aiModel: e.target.value})}
+                  onChange={(e) => handleModelChange(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="gpt-4.0">GPT-4.1 (Recommended)</option>
-                  <option value="gpt-3.5-turbo">GPT-4o (Faster)</option>
+                  <option value="GPT-4.1">GPT-4.1 (Recommended)</option>
+                  <option value="GPT-4o">GPT-4o (Faster)</option>
+                  <option value="GPT-3.5-turbo">GPT-3.5 Turbo (Budget)</option>
                 </select>
               </div>
               <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
                 <strong>GPT-4.1</strong> provides the highest accuracy for code conversion and security scanning.
+                <br />
+                <strong>GPT-4o</strong> offers faster response times with good accuracy.
+                <br />
+                <strong>GPT-3.5 Turbo</strong> is the most cost-effective option.
               </div>
             </div>
           </div>
@@ -62,7 +188,7 @@ const Settings: React.FC = () => {
               </label>
               <select 
                 value={settings.language}
-                onChange={(e) => setSettings({...settings, language: e.target.value})}
+                onChange={(e) => handleLanguageChange(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="en">English</option>
@@ -89,7 +215,7 @@ const Settings: React.FC = () => {
                   <input 
                     type="checkbox" 
                     checked={settings.secureMode}
-                    onChange={(e) => setSettings({...settings, secureMode: e.target.checked})}
+                    onChange={(e) => handleSecureModeChange(e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -105,7 +231,7 @@ const Settings: React.FC = () => {
                   <input 
                     type="checkbox" 
                     checked={settings.autoScan}
-                    onChange={(e) => setSettings({...settings, autoScan: e.target.checked})}
+                    onChange={(e) => handleAutoScanChange(e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -121,13 +247,7 @@ const Settings: React.FC = () => {
                     <input 
                       type="checkbox" 
                       checked={settings.complianceStandards.includes('hipaa')}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSettings({...settings, complianceStandards: [...settings.complianceStandards, 'hipaa']});
-                        } else {
-                          setSettings({...settings, complianceStandards: settings.complianceStandards.filter(s => s !== 'hipaa')});
-                        }
-                      }}
+                      onChange={(e) => handleComplianceStandardChange('hipaa', e.target.checked)}
                       className="rounded text-blue-600 focus:ring-blue-500"
                     />
                     <span className="ml-2 text-sm text-gray-700">HIPAA (Healthcare)</span>
@@ -136,13 +256,7 @@ const Settings: React.FC = () => {
                     <input 
                       type="checkbox" 
                       checked={settings.complianceStandards.includes('iso27001')}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSettings({...settings, complianceStandards: [...settings.complianceStandards, 'iso27001']});
-                        } else {
-                          setSettings({...settings, complianceStandards: settings.complianceStandards.filter(s => s !== 'iso27001')});
-                        }
-                      }}
+                      onChange={(e) => handleComplianceStandardChange('iso27001', e.target.checked)}
                       className="rounded text-blue-600 focus:ring-blue-500"
                     />
                     <span className="ml-2 text-sm text-gray-700">ISO 27001 (Information Security)</span>
@@ -150,17 +264,6 @@ const Settings: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Save Button */}
-          <div className="flex justify-end">
-            <button 
-              onClick={handleSave}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-            >
-              <Save size={16} />
-              Save Settings
-            </button>
           </div>
         </div>
       </div>

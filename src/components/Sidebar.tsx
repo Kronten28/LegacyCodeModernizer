@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Home, 
   Code, 
@@ -6,7 +6,10 @@ import {
   FileText, 
   Settings,
   FolderGit,
-  ChevronRight
+  ChevronRight,
+  Wifi,
+  WifiOff,
+  AlertCircle
 } from 'lucide-react';
 import { useNavigate } from "react-router-dom"; 
 
@@ -15,8 +18,128 @@ interface SidebarProps {
   onViewChange: (view: string) => void;
 }
 
+interface ApiStatus {
+  connected: boolean;
+  model: string;
+  lastChecked: Date | null;
+  checking: boolean;
+}
+
 const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
   const navigate = useNavigate(); 
+  
+  // State for API status
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({
+    connected: false,
+    model: 'GPT-4.1',
+    lastChecked: null,
+    checking: false
+  });
+
+  // Load settings from localStorage
+  const loadSettings = () => {
+    try {
+      const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        return {
+          aiModel: settings.aiModel || 'GPT-4.1',
+          secureMode: settings.secureMode ?? true,
+          autoScan: settings.autoScan ?? true,
+          complianceStandards: settings.complianceStandards || ['hipaa', 'iso27001']
+        };
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+    
+    // Default settings
+    return {
+      aiModel: 'GPT-4.1',
+      secureMode: true,
+      autoScan: true,
+      complianceStandards: ['hipaa', 'iso27001']
+    };
+  };
+
+  // Check API connectivity
+  const checkApiConnectivity = async () => {
+    setApiStatus(prev => ({ ...prev, checking: true }));
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch('http://localhost:5000/api/health', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setApiStatus(prev => ({
+          ...prev,
+          connected: true,
+          lastChecked: new Date(),
+          checking: false
+        }));
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error('API connectivity check failed:', error);
+      setApiStatus(prev => ({
+        ...prev,
+        connected: false,
+        lastChecked: new Date(),
+        checking: false
+      }));
+    }
+  };
+
+  // Update model from settings
+  const updateModelFromSettings = () => {
+    const settings = loadSettings();
+    setApiStatus(prev => ({
+      ...prev,
+      model: settings.aiModel
+    }));
+  };
+
+  // Check connectivity on component mount and periodically
+  useEffect(() => {
+    updateModelFromSettings();
+    checkApiConnectivity();
+    
+    // Check connectivity every 30 seconds
+    const connectivityInterval = setInterval(checkApiConnectivity, 30000);
+    
+    // Listen for settings changes
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'legacyCodeModernizer_settings') {
+        updateModelFromSettings();
+      }
+    };
+
+    // Listen for custom settings update events
+    const handleSettingsUpdate = () => {
+      updateModelFromSettings();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('settingsUpdated', handleSettingsUpdate);
+    
+    return () => {
+      clearInterval(connectivityInterval);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('settingsUpdated', handleSettingsUpdate);
+    };
+  }, []);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -25,6 +148,40 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
     { id: 'report', label: 'Summary Report', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  const getStatusIcon = () => {
+    if (apiStatus.checking) {
+      return <AlertCircle size={12} className="text-yellow-400 animate-pulse" />;
+    }
+    return apiStatus.connected ? 
+      <Wifi size={12} className="text-green-400" /> : 
+      <WifiOff size={12} className="text-red-400" />;
+  };
+
+  const getStatusText = () => {
+    if (apiStatus.checking) {
+      return 'Checking...';
+    }
+    return apiStatus.connected ? 'Connected' : 'Disconnected';
+  };
+
+  const getStatusColor = () => {
+    if (apiStatus.checking) {
+      return 'text-yellow-400';
+    }
+    return apiStatus.connected ? 'text-green-400' : 'text-red-400';
+  };
+
+  const formatLastChecked = () => {
+    if (!apiStatus.lastChecked) return '';
+    const now = new Date();
+    const diffMs = now.getTime() - apiStatus.lastChecked.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    
+    if (diffSecs < 60) return `${diffSecs}s ago`;
+    if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
+    return `${Math.floor(diffSecs / 3600)}h ago`;
+  };
 
   return (
     <div className="w-64 bg-slate-900 text-white h-screen flex flex-col">
@@ -59,9 +216,35 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
         })}
       </nav>
       
-      <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
-        <div>API Status: Connected</div>
-        <div>Model: GPT-4.0</div>
+      <div className="p-4 border-t border-slate-700 text-xs text-slate-400 space-y-2">
+        <div className="flex items-center justify-between">
+          <span>API Status:</span>
+          <div className="flex items-center gap-1">
+            {getStatusIcon()}
+            <span className={getStatusColor()}>{getStatusText()}</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center justify-between">
+          <span>Model:</span>
+          <span className="text-slate-300 font-medium">{apiStatus.model}</span>
+        </div>
+        
+        {apiStatus.lastChecked && (
+          <div className="text-center text-slate-500 text-[10px]">
+            Last checked: {formatLastChecked()}
+          </div>
+        )}
+        
+        {!apiStatus.connected && (
+          <button
+            onClick={checkApiConnectivity}
+            disabled={apiStatus.checking}
+            className="w-full text-[10px] text-slate-400 hover:text-slate-300 underline disabled:opacity-50"
+          >
+            {apiStatus.checking ? 'Checking...' : 'Retry Connection'}
+          </button>
+        )}
       </div>
     </div>
   );
