@@ -12,6 +12,11 @@ import {
   File,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
+  AlertTriangle,
+  Shield,
+  AlertCircle,
+  FileCode,
 } from "lucide-react";
 import axios from "axios";
 import { saveAs } from "file-saver";
@@ -64,6 +69,9 @@ const CodeWorkspace: React.FC = () => {
   const [repoLoadFailed, setRepoLoadFailed] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [repos, setRepos] = useState<any[]>([]);
+
+  // File sidebar state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const python2Code = selectedFileName ? uploadedFiles[selectedFileName] || "" : passedCode;
   const python3Code = selectedFileName && convertedFiles[selectedFileName]
@@ -428,7 +436,136 @@ const CodeWorkspace: React.FC = () => {
       return () => window.removeEventListener("message", handleMessage);
     }, []);
 
+  // Get security issues for a specific file
+  const getFileSecurityIssues = (fileName: string): SecurityIssue[] => {
+    if (!latestReport) return [];
+    return latestReport.securityIssues.filter(issue => issue.file === fileName);
+  };
 
+  // Get highest severity for a file
+  const getFileHighestSeverity = (fileName: string): 'high' | 'medium' | 'low' | null => {
+    const issues = getFileSecurityIssues(fileName);
+    if (issues.length === 0) return null;
+    
+    if (issues.some(issue => issue.severity === 'high')) return 'high';
+    if (issues.some(issue => issue.severity === 'medium')) return 'medium';
+    return 'low';
+  };
+
+  // Render the file sidebar
+  const renderFileSidebar = () => {
+    const fileNames = Object.keys(uploadedFiles);
+    if (fileNames.length <= 1) return null;
+
+    return (
+      <div className={`bg-white border-r transition-all duration-300 ${sidebarCollapsed ? 'w-12' : 'w-64'} flex flex-col`}>
+        {/* Sidebar Header */}
+        <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
+          {!sidebarCollapsed && (
+            <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <Folder size={16} />
+              Files ({fileNames.length})
+            </h3>
+          )}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="p-1 hover:bg-gray-200 rounded text-gray-600"
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        </div>
+
+        {/* File List */}
+        <div className="flex-1 overflow-y-auto">
+          {fileNames.map((fileName) => {
+            const isActive = fileName === selectedFileName;
+            const hasConverted = fileName in convertedFiles;
+            const severity = getFileHighestSeverity(fileName);
+            const issuesCount = getFileSecurityIssues(fileName).length;
+
+            return (
+              <div
+                key={fileName}
+                onClick={() => setSelectedFileName(fileName)}
+                className={`p-3 cursor-pointer border-b border-gray-100 hover:bg-gray-50 ${
+                  isActive ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                } ${sidebarCollapsed ? 'px-2' : ''}`}
+                title={sidebarCollapsed ? fileName : ''}
+              >
+                <div className="flex items-center gap-2">
+                  {/* File icon */}
+                  <div className="flex-shrink-0">
+                    <FileCode 
+                      size={16} 
+                      className={`${fileName.endsWith('.py') ? 'text-blue-600' : 'text-gray-500'}`}
+                    />
+                  </div>
+
+                  {/* File name (hidden when collapsed) */}
+                  {!sidebarCollapsed && (
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {fileName}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        {/* Conversion status */}
+                        {hasConverted && (
+                          <span className="text-xs text-green-600 flex items-center gap-1">
+                            <Shield size={10} />
+                            Converted
+                          </span>
+                        )}
+                        
+                        {/* Security indicators */}
+                        {severity && (
+                          <div className="flex items-center gap-1">
+                            {severity === 'high' && (
+                              <div className="flex items-center gap-1 text-xs text-red-600">
+                                <AlertTriangle size={10} />
+                                <span>{issuesCount} high</span>
+                              </div>
+                            )}
+                            {severity === 'medium' && !getFileSecurityIssues(fileName).some(i => i.severity === 'high') && (
+                              <div className="flex items-center gap-1 text-xs text-orange-600">
+                                <AlertCircle size={10} />
+                                <span>{issuesCount} med</span>
+                              </div>
+                            )}
+                            {severity === 'low' && !getFileSecurityIssues(fileName).some(i => i.severity === 'high' || i.severity === 'medium') && (
+                              <div className="flex items-center gap-1 text-xs text-yellow-600">
+                                <AlertCircle size={10} />
+                                <span>{issuesCount} low</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Indicators when collapsed */}
+                  {sidebarCollapsed && (
+                    <div className="flex flex-col items-center gap-1">
+                      {hasConverted && (
+                        <div className="w-2 h-2 bg-green-500 rounded-full" title="Converted" />
+                      )}
+                      {severity && (
+                        <div className={`w-2 h-2 rounded-full ${
+                          severity === 'high' ? 'bg-red-500' : 
+                          severity === 'medium' ? 'bg-orange-500' : 'bg-yellow-500'
+                        }`} title={`${issuesCount} ${severity} severity issues`} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const renderFileTree = (files: GitHubFile[], depth = 0): React.ReactNode => {
     return files.map(file => (
@@ -520,7 +657,12 @@ const CodeWorkspace: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[60vh]">
+        <div className="flex gap-6 h-[60vh]">
+          {/* File Sidebar */}
+          {renderFileSidebar()}
+
+          {/* Main Content Area */}
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-lg shadow-sm border flex flex-col">
             <div className="p-4 border-b bg-red-50 border-red-200 flex items-center justify-between">
               <h3 className="font-semibold text-red-800 flex items-center gap-2">
@@ -655,24 +797,9 @@ const CodeWorkspace: React.FC = () => {
               </button>
             </div>
           </div>
+          </div>
         </div>
 
-        {/* Unified File Dropdown */}
-        {Object.keys(uploadedFiles).length > 1 && (
-          <div className="flex justify-center mt-4">
-            <label htmlFor="file-switcher" className="mr-2 text-sm font-medium text-gray-700">View file:</label>
-            <select
-              id="file-switcher"
-              value={selectedFileName}
-              onChange={(e) => setSelectedFileName(e.target.value)}
-              className="text-sm border border-gray-300 rounded px-2 py-1"
-            >
-              {Object.keys(uploadedFiles).map(fileName => (
-                <option key={fileName} value={fileName}>{fileName}</option>
-              ))}
-            </select>
-          </div>
-        )}
 
         {/* Change Explanation Panel */}
         <div className="mt-6 bg-white rounded-lg shadow-sm border">
