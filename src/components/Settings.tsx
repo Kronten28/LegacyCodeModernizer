@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import { toast } from "@/components/ui/sonner";
 
 interface SettingsState {
   aiModel: string;
+  openaiApiKey: string;
   language: string;
   secureMode: boolean;
   autoScan: boolean;
@@ -13,6 +14,7 @@ interface SettingsState {
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<SettingsState>({
     aiModel: 'GPT-4.1',
+    openaiApiKey: '',
     language: 'en',
     secureMode: true,
     autoScan: true,
@@ -21,6 +23,7 @@ const Settings: React.FC = () => {
 
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   // Load settings from localStorage on component mount
   useEffect(() => {
@@ -82,6 +85,10 @@ const Settings: React.FC = () => {
 
   const handleModelChange = (newModel: string) => {
     setSettings(prev => ({ ...prev, aiModel: newModel }));
+  };
+
+  const handleApiKeyChange = (newApiKey: string) => {
+    setSettings(prev => ({ ...prev, openaiApiKey: newApiKey }));
   };
 
   const handleLanguageChange = (newLanguage: string) => {
@@ -152,6 +159,30 @@ const Settings: React.FC = () => {
               AI Model Configuration
             </h3>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  OpenAI API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    value={settings.openaiApiKey}
+                    onChange={(e) => handleApiKeyChange(e.target.value)}
+                    placeholder="Enter your OpenAI API key"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                  >
+                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  <em>Used to authenticate and run code conversion through OpenAI. Your key is stored securely.</em>
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   AI Model
