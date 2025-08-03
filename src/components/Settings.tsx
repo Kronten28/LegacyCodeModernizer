@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle, Eye, EyeOff, Wifi, WifiOff, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from "@/components/ui/sonner";
+import { useAppContext } from '@/context/AppContext';
 
 interface SettingsState {
   aiModel: string;
@@ -12,6 +13,7 @@ interface SettingsState {
 }
 
 const Settings: React.FC = () => {
+  const { apiConnectivity, checkApiConnectivity, saveApiKey } = useAppContext();
   const [settings, setSettings] = useState<SettingsState>({
     aiModel: 'GPT-4.1',
     openaiApiKey: '',
@@ -24,6 +26,7 @@ const Settings: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Load settings from localStorage on component mount
   useEffect(() => {
@@ -91,6 +94,59 @@ const Settings: React.FC = () => {
     setSettings(prev => ({ ...prev, openaiApiKey: newApiKey }));
   };
 
+  const handleConnectApi = async () => {
+    if (!settings.openaiApiKey.trim()) {
+      toast("Please enter an API key", {
+        description: "An OpenAI API key is required to establish connection.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+      return;
+    }
+
+    setIsConnecting(true);
+    
+    try {
+      const success = await saveApiKey(settings.openaiApiKey.trim());
+      
+      if (success) {
+        toast("API connection established!", {
+          description: "Successfully connected to OpenAI API.",
+          icon: <CheckCircle className="text-green-500" size={16} />
+        });
+      } else {
+        toast("Failed to establish API connection", {
+          description: apiConnectivity.error || "Please check your API key and try again.",
+          icon: <AlertCircle className="text-red-500" size={16} />
+        });
+      }
+    } catch (error) {
+      toast("Connection error", {
+        description: "An unexpected error occurred while connecting.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    await checkApiConnectivity();
+    
+    if (apiConnectivity.isConnected) {
+      toast("Connection test successful!", {
+        description: apiConnectivity.openaiConfigured ? 
+          "API is connected and OpenAI is configured." : 
+          "API is connected but OpenAI key needs to be configured.",
+        icon: <CheckCircle className="text-green-500" size={16} />
+      });
+    } else {
+      toast("Connection test failed", {
+        description: apiConnectivity.error || "Unable to connect to the API server.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+    }
+  };
+
   const handleLanguageChange = (newLanguage: string) => {
     setSettings(prev => ({ ...prev, language: newLanguage }));
   };
@@ -154,10 +210,30 @@ const Settings: React.FC = () => {
         <div className="space-y-6">
           {/* AI Model Settings */}
           <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Key className="text-blue-500" size={20} />
-              AI Model Configuration
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Key className="text-blue-500" size={20} />
+                AI Model Configuration
+              </h3>
+              <div className="flex items-center gap-2">
+                {apiConnectivity.isConnected ? (
+                  <div className="flex items-center gap-1 text-green-600 text-sm">
+                    <Wifi size={16} />
+                    <span>Connected</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-red-600 text-sm">
+                    <WifiOff size={16} />
+                    <span>Disconnected</span>
+                  </div>
+                )}
+                {apiConnectivity.lastChecked && (
+                  <span className="text-xs text-gray-500">
+                    Last checked: {apiConnectivity.lastChecked.toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            </div>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -182,6 +258,66 @@ const Settings: React.FC = () => {
                 <p className="text-xs text-gray-500 mt-1">
                   <em>Used to authenticate and run code conversion through OpenAI. Your key is stored securely.</em>
                 </p>
+                
+                {/* Connection controls */}
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={handleConnectApi}
+                    disabled={isConnecting || !settings.openaiApiKey.trim()}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    {isConnecting ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Wifi size={14} />
+                        Connect API
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={handleTestConnection}
+                    disabled={apiConnectivity.isChecking}
+                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    {apiConnectivity.isChecking ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={14} />
+                        Test Connection
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Connection status and error display */}
+                {apiConnectivity.error && (
+                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-700 text-sm">
+                      <AlertCircle size={16} />
+                      <span className="font-medium">Connection Error</span>
+                    </div>
+                    <p className="text-red-600 text-sm mt-1">{apiConnectivity.error}</p>
+                  </div>
+                )}
+
+                {apiConnectivity.isConnected && apiConnectivity.openaiConfigured && (
+                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-green-700 text-sm">
+                      <CheckCircle size={16} />
+                      <span className="font-medium">API Connected</span>
+                    </div>
+                    <p className="text-green-600 text-sm mt-1">OpenAI API is configured and ready to use.</p>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">

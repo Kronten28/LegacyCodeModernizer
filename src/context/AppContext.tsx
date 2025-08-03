@@ -25,6 +25,15 @@ export interface SecurityIssue {
   code: string;
 }
 
+// Define the API connectivity state
+export interface ApiConnectivity {
+  isConnected: boolean;
+  isChecking: boolean;
+  lastChecked: Date | null;
+  error: string | null;
+  openaiConfigured: boolean;
+}
+
 // Define the workspace state
 export interface WorkspaceState {
   uploadedFiles: Record<string, string>;
@@ -40,6 +49,11 @@ interface AppContextType {
   addReport: (report: Omit<Report, 'id' | 'timestamp'>) => void;
   latestReport: Report | null;
   
+  // API connectivity management
+  apiConnectivity: ApiConnectivity;
+  checkApiConnectivity: () => Promise<void>;
+  saveApiKey: (apiKey: string) => Promise<boolean>;
+  
   // Workspace state management
   workspaceState: WorkspaceState;
   updateWorkspaceState: (updates: Partial<WorkspaceState>) => void;
@@ -48,6 +62,15 @@ interface AppContextType {
 
 // Create the context
 const AppContext = createContext<AppContextType | undefined>(undefined);
+
+// Initial API connectivity state
+const initialApiConnectivity: ApiConnectivity = {
+  isConnected: false,
+  isChecking: false,
+  lastChecked: null,
+  error: null,
+  openaiConfigured: false,
+};
 
 // Initial workspace state
 const initialWorkspaceState: WorkspaceState = {
@@ -61,6 +84,7 @@ const initialWorkspaceState: WorkspaceState = {
 // Create the provider component
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [reports, setReports] = useState<Report[]>([]);
+  const [apiConnectivity, setApiConnectivity] = useState<ApiConnectivity>(initialApiConnectivity);
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(initialWorkspaceState);
 
   const addReport = (reportData: Omit<Report, 'id' | 'timestamp'>) => {
@@ -70,6 +94,68 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       timestamp: new Date(),
     };
     setReports(prevReports => [newReport, ...prevReports]);
+  };
+
+  const checkApiConnectivity = async (): Promise<void> => {
+    setApiConnectivity(prev => ({ ...prev, isChecking: true, error: null }));
+    
+    try {
+      const response = await fetch('http://localhost:5000/api/health');
+      const data = await response.json();
+      
+      if (response.ok) {
+        setApiConnectivity(prev => ({
+          ...prev,
+          isConnected: true,
+          isChecking: false,
+          lastChecked: new Date(),
+          error: null,
+          openaiConfigured: data.openai_configured || false,
+        }));
+      } else {
+        throw new Error(data.error || 'Health check failed');
+      }
+    } catch (error) {
+      setApiConnectivity(prev => ({
+        ...prev,
+        isConnected: false,
+        isChecking: false,
+        lastChecked: new Date(),
+        error: error instanceof Error ? error.message : 'Connection failed',
+        openaiConfigured: false,
+      }));
+    }
+  };
+
+  const saveApiKey = async (apiKey: string): Promise<boolean> => {
+    try {
+      const response = await fetch('http://localhost:5000/api/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: 'openai',
+          api: apiKey,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.status === 'success') {
+        // After saving API key, check connectivity
+        await checkApiConnectivity();
+        return true;
+      } else {
+        throw new Error(data.message || 'Failed to save API key');
+      }
+    } catch (error) {
+      setApiConnectivity(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to save API key',
+      }));
+      return false;
+    }
   };
 
   const updateWorkspaceState = (updates: Partial<WorkspaceState>) => {
@@ -87,6 +173,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       reports, 
       addReport, 
       latestReport,
+      apiConnectivity,
+      checkApiConnectivity,
+      saveApiKey,
       workspaceState,
       updateWorkspaceState,
       clearWorkspaceState

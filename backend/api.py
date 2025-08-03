@@ -130,7 +130,7 @@ def migrate():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/api/save")
+@app.route("/api/save", methods=["POST"])
 def api_save():
     provider = request.json.get("provider")
     api = request.json.get("api")

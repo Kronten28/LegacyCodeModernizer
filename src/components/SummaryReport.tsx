@@ -1,9 +1,87 @@
-import React from 'react';
-import { Download, FileText, CheckCircle, AlertTriangle, Clock, FileCode } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Download, FileText, CheckCircle, AlertTriangle, Clock, FileCode, ChevronRight } from 'lucide-react';
 import { useAppContext } from '@/context/AppContext';
 
 const SummaryReport: React.FC = () => {
-  const { latestReport } = useAppContext();
+  const { reports } = useAppContext();
+
+  // Function to extract and prioritize key changes from explanation text
+  const extractKeyChanges = (explanation: string): string[] => {
+    const lines = explanation.split('\n').filter(line => line.trim());
+    const keyChanges: string[] = [];
+    
+    // Priority patterns for most important changes
+    const priorityPatterns = [
+      /type (hints|annotations)/i,
+      /print\s*(statement|function)/i,
+      /unicode|string/i,
+      /import/i,
+      /exception|error handling/i,
+      /division|operator/i,
+      /input\(\)|raw_input/i,
+      /dict\.|\.keys\(\)|\.values\(\)|\.items\(\)/i,
+      /range|xrange/i,
+      /async|await/i,
+      /f-string|format/i,
+      /walrus operator|:=/i,
+    ];
+    
+    // First pass: Look for lines with priority patterns
+    for (const line of lines) {
+      const cleanLine = line.replace(/^\*+\s*/, '').replace(/^-+\s*/, '').trim();
+      if (!cleanLine) continue;
+      
+      for (const pattern of priorityPatterns) {
+        if (pattern.test(cleanLine) && keyChanges.length < 2) {
+          keyChanges.push(cleanLine);
+          break;
+        }
+      }
+    }
+    
+    // Second pass: If we don't have enough key changes, take any bullet points
+    if (keyChanges.length < 2) {
+      for (const line of lines) {
+        if ((line.startsWith('*') || line.startsWith('-')) && keyChanges.length < 2) {
+          const cleanLine = line.replace(/^\*+\s*/, '').replace(/^-+\s*/, '').trim();
+          if (cleanLine && !keyChanges.includes(cleanLine)) {
+            keyChanges.push(cleanLine);
+          }
+        }
+      }
+    }
+    
+    // Third pass: If still not enough, take any substantial line
+    if (keyChanges.length < 2) {
+      for (const line of lines) {
+        const cleanLine = line.trim();
+        if (cleanLine.length > 20 && !cleanLine.startsWith('**') && keyChanges.length < 2) {
+          keyChanges.push(cleanLine);
+        }
+      }
+    }
+    
+    return keyChanges.slice(0, 2); // Maximum 2 changes per conversion
+  };
+
+  // Process all reports to extract major changes
+  const majorChangesData = useMemo(() => {
+    if (reports.length === 0) return [];
+    
+    // Get up to 5 most recent reports
+    const recentReports = reports.slice(0, 5);
+    
+    return recentReports.map(report => ({
+      id: report.id,
+      timestamp: report.timestamp,
+      success: report.success,
+      changes: extractKeyChanges(report.explanation),
+      hasSecurityIssues: report.securityIssues.length > 0,
+      highSeverityCount: report.securityIssues.filter(i => i.severity === 'high').length,
+    }));
+  }, [reports]);
+
+  const latestReport = reports[0];
 
   if (!latestReport) {
     return (
@@ -19,20 +97,21 @@ const SummaryReport: React.FC = () => {
 
   const reportData = {
     timestamp: latestReport.timestamp.toLocaleString(),
-    totalFiles: 1, // Represents the single file converted
-    successfulConversions: latestReport.success ? 1 : 0,
-    failedConversions: latestReport.success ? 0 : 1,
+    totalFiles: reports.length,
+    successfulConversions: reports.filter(r => r.success).length,
+    failedConversions: reports.filter(r => !r.success).length,
     executionTime: `${(latestReport.executionTime / 1000).toFixed(2)} seconds`,
+    avgExecutionTime: `${(reports.reduce((acc, r) => acc + r.executionTime, 0) / reports.length / 1000).toFixed(2)} seconds`,
     securityIssues: {
-      high: latestReport.securityIssues.filter(i => i.severity === 'high').length,
-      medium: latestReport.securityIssues.filter(i => i.severity === 'medium').length,
-      low: latestReport.securityIssues.filter(i => i.severity === 'low').length
+      high: reports.reduce((acc, r) => acc + r.securityIssues.filter(i => i.severity === 'high').length, 0),
+      medium: reports.reduce((acc, r) => acc + r.securityIssues.filter(i => i.severity === 'medium').length, 0),
+      low: reports.reduce((acc, r) => acc + r.securityIssues.filter(i => i.severity === 'low').length, 0),
     },
-    // A simple way to get major changes from the explanation
-    majorChanges: latestReport.explanation.split('\n').filter(line => line.startsWith('* ')).map(line => line.substring(2))
   };
 
-  const successRate = ((reportData.successfulConversions / reportData.totalFiles) * 100).toFixed(1);
+  const successRate = reportData.totalFiles > 0 
+    ? ((reportData.successfulConversions / reportData.totalFiles) * 100).toFixed(1)
+    : "0.0";
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -65,8 +144,8 @@ const SummaryReport: React.FC = () => {
             </div>
             <div className="text-center p-4 bg-purple-50 rounded-lg">
               <Clock className="mx-auto text-purple-600 mb-2" size={24} />
-              <div className="text-2xl font-bold text-purple-600">{reportData.executionTime}</div>
-              <div className="text-sm text-gray-600">Total Time</div>
+              <div className="text-2xl font-bold text-purple-600">{reportData.avgExecutionTime}</div>
+              <div className="text-sm text-gray-600">Avg. Time</div>
             </div>
           </div>
         </div>
@@ -114,17 +193,61 @@ const SummaryReport: React.FC = () => {
           </div>
         </div>
 
-        {/* Major Changes */}
+        {/* Major Changes Applied */}
         <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Major Changes Applied</h3>
-          <div className="space-y-2">
-            {reportData.majorChanges.map((change, index) => (
-              <div key={index} className="flex items-center gap-3 p-2">
-                <CheckCircle className="text-green-500 flex-shrink-0" size={16} />
-                <span className="text-gray-700">{change}</span>
-              </div>
-            ))}
-          </div>
+          {majorChangesData.length > 0 ? (
+            <div className="space-y-4">
+              {majorChangesData.map((report, reportIndex) => (
+                <div key={report.id} className="border-l-4 border-blue-200 pl-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">
+                        Conversion #{reports.length - reportIndex}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {report.timestamp.toLocaleString()}
+                      </span>
+                      {report.hasSecurityIssues && report.highSeverityCount > 0 && (
+                        <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                          {report.highSeverityCount} security issues
+                        </span>
+                      )}
+                    </div>
+                    {report.success ? (
+                      <CheckCircle className="text-green-500" size={16} />
+                    ) : (
+                      <AlertTriangle className="text-red-500" size={16} />
+                    )}
+                  </div>
+                  {report.changes.length > 0 ? (
+                    <div className="space-y-2">
+                      {report.changes.map((change, changeIndex) => (
+                        <div key={changeIndex} className="flex items-start gap-2">
+                          <ChevronRight className="text-gray-400 mt-0.5 flex-shrink-0" size={14} />
+                          <p className="text-sm text-gray-700 leading-relaxed">{change}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">No major changes documented</p>
+                  )}
+                </div>
+              ))}
+              
+              {reports.length > 5 && (
+                <div className="text-center pt-2">
+                  <p className="text-sm text-gray-500">
+                    Showing recent {majorChangesData.length} of {reports.length} conversions
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <p className="text-gray-500">No conversion changes to display</p>
+            </div>
+          )}
         </div>
 
         {/* Report Metadata */}
@@ -132,8 +255,8 @@ const SummaryReport: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Report Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-600">Generated:</span>
-              <span className="ml-2 font-medium">{reportData.timestamp}</span>
+              <span className="text-gray-600">Last Updated:</span>
+              <span className="ml-2 font-medium">{latestReport.timestamp.toLocaleString()}</span>
             </div>
             <div>
               <span className="text-gray-600">AI Model:</span>

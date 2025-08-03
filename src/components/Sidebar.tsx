@@ -11,113 +11,37 @@ import {
   WifiOff,
   AlertCircle
 } from 'lucide-react';
-import { useNavigate } from "react-router-dom"; 
+import { useNavigate } from "react-router-dom";
+import { useAppContext } from '@/context/AppContext'; 
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
 }
 
-interface ApiStatus {
-  connected: boolean;
-  model: string;
-  lastChecked: Date | null;
-  checking: boolean;
-}
-
 const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
+  const { apiConnectivity, checkApiConnectivity } = useAppContext();
   
-  // State for API status
-  const [apiStatus, setApiStatus] = useState<ApiStatus>({
-    connected: false,
-    model: 'GPT-4.1',
-    lastChecked: null,
-    checking: false
-  });
+  // State for AI model (still need this for display)
+  const [currentModel, setCurrentModel] = useState<string>('GPT-4.1');
 
-  // Load settings from localStorage
-  const loadSettings = () => {
+  // Update model from settings
+  const updateModelFromSettings = () => {
     try {
       const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
       if (savedSettings) {
         const settings = JSON.parse(savedSettings);
-        return {
-          aiModel: settings.aiModel || 'GPT-4.1',
-          secureMode: settings.secureMode ?? true,
-          autoScan: settings.autoScan ?? true,
-          complianceStandards: settings.complianceStandards || ['hipaa', 'iso27001']
-        };
+        setCurrentModel(settings.aiModel || 'GPT-4.1');
       }
     } catch (error) {
       console.error('Error loading settings:', error);
     }
-    
-    // Default settings
-    return {
-      aiModel: 'GPT-4.1',
-      secureMode: true,
-      autoScan: true,
-      complianceStandards: ['hipaa', 'iso27001']
-    };
   };
 
-  // Check API connectivity
-  const checkApiConnectivity = async () => {
-    setApiStatus(prev => ({ ...prev, checking: true }));
-    
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const response = await fetch('http://localhost:5000/api/health', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        const data = await response.json();
-        setApiStatus(prev => ({
-          ...prev,
-          connected: true,
-          lastChecked: new Date(),
-          checking: false
-        }));
-      } else {
-        throw new Error(`HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error('API connectivity check failed:', error);
-      setApiStatus(prev => ({
-        ...prev,
-        connected: false,
-        lastChecked: new Date(),
-        checking: false
-      }));
-    }
-  };
-
-  // Update model from settings
-  const updateModelFromSettings = () => {
-    const settings = loadSettings();
-    setApiStatus(prev => ({
-      ...prev,
-      model: settings.aiModel
-    }));
-  };
-
-  // Check connectivity on component mount and periodically
+  // Initialize and listen for settings changes
   useEffect(() => {
     updateModelFromSettings();
-    checkApiConnectivity();
-    
-    // Check connectivity every 30 seconds
-    const connectivityInterval = setInterval(checkApiConnectivity, 30000);
     
     // Listen for settings changes
     const handleStorageChange = (e: StorageEvent) => {
@@ -135,7 +59,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
     window.addEventListener('settingsUpdated', handleSettingsUpdate);
     
     return () => {
-      clearInterval(connectivityInterval);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('settingsUpdated', handleSettingsUpdate);
     };
@@ -150,32 +73,44 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
   ];
 
   const getStatusIcon = () => {
-    if (apiStatus.checking) {
+    if (apiConnectivity.isChecking) {
       return <AlertCircle size={12} className="text-yellow-400 animate-pulse" />;
     }
-    return apiStatus.connected ? 
+    return (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) ? 
       <Wifi size={12} className="text-green-400" /> : 
       <WifiOff size={12} className="text-red-400" />;
   };
 
   const getStatusText = () => {
-    if (apiStatus.checking) {
+    if (apiConnectivity.isChecking) {
       return 'Checking...';
     }
-    return apiStatus.connected ? 'Connected' : 'Disconnected';
+    if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
+      return 'Connected';
+    }
+    if (apiConnectivity.isConnected && !apiConnectivity.openaiConfigured) {
+      return 'API Key Needed';
+    }
+    return 'Disconnected';
   };
 
   const getStatusColor = () => {
-    if (apiStatus.checking) {
+    if (apiConnectivity.isChecking) {
       return 'text-yellow-400';
     }
-    return apiStatus.connected ? 'text-green-400' : 'text-red-400';
+    if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
+      return 'text-green-400';
+    }
+    if (apiConnectivity.isConnected && !apiConnectivity.openaiConfigured) {
+      return 'text-orange-400';
+    }
+    return 'text-red-400';
   };
 
   const formatLastChecked = () => {
-    if (!apiStatus.lastChecked) return '';
+    if (!apiConnectivity.lastChecked) return '';
     const now = new Date();
-    const diffMs = now.getTime() - apiStatus.lastChecked.getTime();
+    const diffMs = now.getTime() - apiConnectivity.lastChecked.getTime();
     const diffSecs = Math.floor(diffMs / 1000);
     
     if (diffSecs < 60) return `${diffSecs}s ago`;
@@ -227,22 +162,22 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
         
         <div className="flex items-center justify-between">
           <span>Model:</span>
-          <span className="text-slate-300 font-medium">{apiStatus.model}</span>
+          <span className="text-slate-300 font-medium">{currentModel}</span>
         </div>
         
-        {apiStatus.lastChecked && (
+        {apiConnectivity.lastChecked && (
           <div className="text-center text-slate-500 text-[10px]">
             Last checked: {formatLastChecked()}
           </div>
         )}
         
-        {!apiStatus.connected && (
+        {(!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) && (
           <button
             onClick={checkApiConnectivity}
-            disabled={apiStatus.checking}
+            disabled={apiConnectivity.isChecking}
             className="w-full text-[10px] text-slate-400 hover:text-slate-300 underline disabled:opacity-50"
           >
-            {apiStatus.checking ? 'Checking...' : 'Retry Connection'}
+            {apiConnectivity.isChecking ? 'Checking...' : 'Retry Connection'}
           </button>
         )}
       </div>

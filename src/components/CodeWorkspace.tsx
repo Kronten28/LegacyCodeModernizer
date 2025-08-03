@@ -53,7 +53,7 @@ const CodeWorkspace: React.FC = () => {
   const githubDefaultFile = location.state?.defaultFile || "";
 
   // Get context
-  const { addReport, latestReport, workspaceState, updateWorkspaceState } = useAppContext();
+  const { addReport, latestReport, workspaceState, updateWorkspaceState, apiConnectivity } = useAppContext();
 
   // Initialize state from context or defaults
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, string>>(workspaceState.uploadedFiles);
@@ -196,6 +196,19 @@ const CodeWorkspace: React.FC = () => {
       toast("No code to convert.", { description: "Please upload or paste code." });
       return;
     }
+
+    // Check API connectivity before attempting conversion
+    if (!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) {
+      toast("API not connected", { 
+        description: "Please configure your OpenAI API key in Settings first.",
+        action: {
+          label: "Go to Settings",
+          onClick: () => navigate("/settings")
+        }
+      });
+      return;
+    }
+
     setIsConverting(true);
     const newConvertedFiles: Record<string, string> = {};
     let totalSecurityIssues: SecurityIssue[] = [];
@@ -623,12 +636,28 @@ const CodeWorkspace: React.FC = () => {
             </button>
             <button
               onClick={handleModernize}
-              disabled={isConverting}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+              disabled={isConverting || !apiConnectivity.isConnected || !apiConnectivity.openaiConfigured}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured ? "API not connected. Please configure your OpenAI API key in Settings." : ""}
             >
               {isConverting ? <RotateCcw size={16} className="animate-spin" /> : <Play size={16} />}
               {isConverting ? "Converting..." : "Convert to Python 3"}
             </button>
+            
+            {(!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) && (
+              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center gap-2 text-yellow-700 text-sm">
+                  <AlertCircle size={16} />
+                  <span>API not connected. Please configure your OpenAI API key in Settings.</span>
+                  <button 
+                    onClick={() => navigate("/settings")}
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    Go to Settings
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
