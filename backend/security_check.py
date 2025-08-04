@@ -24,16 +24,27 @@ def fetch_api_key(provider: str) -> str:
         raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}")
     if data.get("provider") == provider and data.get("status") == "success":
         key = data.get("key")
-        if key:
+        if key and key.strip():  # Check for non-empty key
             return key
+        else:
+            return ""  # Return empty string if no key found
 
     raise RuntimeError(
-        f"didn't provider={provider} 且 status=success 的 key, output: {result.stdout}"
+        f"Failed to fetch API key for {provider}, output: {result.stdout}"
     )
 
 
-client = OpenAI(api_key=fetch_api_key("openai"))
 MODEL_NAME = "gpt-4.1"
+
+def get_openai_client():
+    """Get OpenAI client instance, creating it lazily when needed."""
+    try:
+        api_key = fetch_api_key("openai")
+        if not api_key:
+            raise RuntimeError("No OpenAI API key configured")
+        return OpenAI(api_key=api_key)
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize OpenAI client: {str(e)}")
 
 
 def extract_line_number(code: str, flagged_code: str) -> int:
@@ -121,6 +132,7 @@ Return ONLY a valid JSON array. Do not include any markdown formatting or additi
 """
 
     try:
+        client = get_openai_client()
         resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[

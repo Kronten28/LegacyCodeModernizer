@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
 
 // Define the shape of a single conversion report
 export interface Report {
@@ -32,6 +32,7 @@ export interface ApiConnectivity {
   lastChecked: Date | null;
   error: string | null;
   openaiConfigured: boolean;
+  userConfigured: boolean; // Track if user has explicitly configured the API through Settings
 }
 
 // Define the workspace state
@@ -53,6 +54,7 @@ interface AppContextType {
   apiConnectivity: ApiConnectivity;
   checkApiConnectivity: () => Promise<void>;
   saveApiKey: (apiKey: string) => Promise<boolean>;
+  deleteApiKey: (provider: string) => Promise<boolean>;
   
   // Workspace state management
   workspaceState: WorkspaceState;
@@ -70,6 +72,7 @@ const initialApiConnectivity: ApiConnectivity = {
   lastChecked: null,
   error: null,
   openaiConfigured: false,
+  userConfigured: false,
 };
 
 // Initial workspace state
@@ -84,7 +87,18 @@ const initialWorkspaceState: WorkspaceState = {
 // Create the provider component
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [reports, setReports] = useState<Report[]>([]);
-  const [apiConnectivity, setApiConnectivity] = useState<ApiConnectivity>(initialApiConnectivity);
+  const [apiConnectivity, setApiConnectivity] = useState<ApiConnectivity>(() => {
+    // Load userConfigured state from localStorage on initialization
+    try {
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      return {
+        ...initialApiConnectivity,
+        userConfigured: savedUserConfigured === 'true'
+      };
+    } catch (error) {
+      return initialApiConnectivity;
+    }
+  });
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(initialWorkspaceState);
 
   const addReport = (reportData: Omit<Report, 'id' | 'timestamp'>) => {
@@ -96,7 +110,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setReports(prevReports => [newReport, ...prevReports]);
   };
 
-  const checkApiConnectivity = async (): Promise<void> => {
+  const checkApiConnectivity = useCallback(async (): Promise<void> => {
     setApiConnectivity(prev => ({ ...prev, isChecking: true, error: null }));
     
     try {
@@ -104,6 +118,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await response.json();
       
       if (response.ok) {
+        
         setApiConnectivity(prev => ({
           ...prev,
           isConnected: true,
@@ -111,6 +126,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           lastChecked: new Date(),
           error: null,
           openaiConfigured: data.openai_configured || false,
+          // Keep userConfigured as is, don't modify it based on backend state
+          userConfigured: prev.userConfigured,
         }));
       } else {
         throw new Error(data.error || 'Health check failed');
@@ -123,11 +140,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         lastChecked: new Date(),
         error: error instanceof Error ? error.message : 'Connection failed',
         openaiConfigured: false,
+        userConfigured: false,
       }));
     }
-  };
+  }, []); // No dependencies needed since we're only using setState
 
-  const saveApiKey = async (apiKey: string): Promise<boolean> => {
+  const saveApiKey = useCallback(async (apiKey: string): Promise<boolean> => {
     try {
       const response = await fetch('http://localhost:5000/api/save', {
         method: 'POST',
@@ -143,7 +161,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await response.json();
       
       if (response.ok && data.status === 'success') {
-        // After saving API key, check connectivity
+        // Mark as user configured and save to localStorage
+        localStorage.setItem('legacyCodeModernizer_userConfigured', 'true');
+        
+        // Update state with userConfigured flag and then check connectivity
+        setApiConnectivity(prev => ({
+          ...prev,
+          userConfigured: true,
+          isConnected: true, // Assume connected since API save succeeded
+          openaiConfigured: true // Assume configured since we just saved a key
+        }));
+        
+        // Still check connectivity to get accurate server state
         await checkApiConnectivity();
         return true;
       } else {
@@ -156,7 +185,44 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }));
       return false;
     }
-  };
+  }, [checkApiConnectivity]);
+
+  const deleteApiKey = useCallback(async (provider: string): Promise<boolean> => {
+    try {
+      const response = await fetch('http://localhost:5000/api/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: provider,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.status === 'success') {
+        // After deleting API key, update connectivity state and clear localStorage
+        localStorage.setItem('legacyCodeModernizer_userConfigured', 'false');
+        setApiConnectivity(prev => ({
+          ...prev,
+          isConnected: false,
+          openaiConfigured: false,
+          userConfigured: false,
+          error: null,
+        }));
+        return true;
+      } else {
+        throw new Error(data.message || 'Failed to delete API key');
+      }
+    } catch (error) {
+      setApiConnectivity(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to delete API key',
+      }));
+      return false;
+    }
+  }, []);
 
   const updateWorkspaceState = (updates: Partial<WorkspaceState>) => {
     setWorkspaceState(prev => ({ ...prev, ...updates }));
@@ -168,6 +234,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const latestReport = reports.length > 0 ? reports[0] : null;
 
+  // Check API connectivity on app startup if user has configured it
+  useEffect(() => {
+    const initializeApiStatus = async () => {
+      // Get the initial userConfigured state from localStorage
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      if (savedUserConfigured === 'true') {
+        await checkApiConnectivity();
+      }
+    };
+    
+    initializeApiStatus();
+  }, [checkApiConnectivity]); // Only run once on mount
+
   return (
     <AppContext.Provider value={{ 
       reports, 
@@ -176,6 +255,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       apiConnectivity,
       checkApiConnectivity,
       saveApiKey,
+      deleteApiKey,
       workspaceState,
       updateWorkspaceState,
       clearWorkspaceState

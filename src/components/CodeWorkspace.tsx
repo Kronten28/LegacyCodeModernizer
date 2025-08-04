@@ -254,7 +254,18 @@ const CodeWorkspace: React.FC = () => {
         }
       } catch (e) {
         const endTime = Date.now();
-        const message = e instanceof Error ? e.message : String(e);
+        let message = e instanceof Error ? e.message : String(e);
+        
+        // Extract more meaningful error message from axios errors
+        if (e && typeof e === 'object' && 'response' in e) {
+          const axiosError = e as any;
+          if (axiosError.response?.data?.message) {
+            message = axiosError.response.data.message;
+          } else if (axiosError.response?.status === 500) {
+            message = `Server error (500): ${message}. Please check if your Python code has syntax errors.`;
+          }
+        }
+        
         newConvertedFiles[fileName] = `// Error: ${message}`;
         addReport({
           success: false,

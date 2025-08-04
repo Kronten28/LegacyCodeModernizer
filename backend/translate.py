@@ -23,16 +23,27 @@ def fetch_api_key(provider: str) -> str:
         raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}")
     if data.get("provider") == provider and data.get("status") == "success":
         key = data.get("key")
-        if key:
+        if key and key.strip():  # Check for non-empty key
             return key
+        else:
+            return ""  # Return empty string if no key found
 
     raise RuntimeError(
-        f"didn't provider={provider} 且 status=success 的 key, output: {result.stdout}"
+        f"Failed to fetch API key for {provider}, output: {result.stdout}"
     )
 
 
-client = OpenAI(api_key=fetch_api_key("openai"))
 MODEL_NAME = "gpt-4.1"
+
+def get_openai_client():
+    """Get OpenAI client instance, creating it lazily when needed."""
+    try:
+        api_key = fetch_api_key("openai")
+        if not api_key:
+            raise RuntimeError("No OpenAI API key configured")
+        return OpenAI(api_key=api_key)
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize OpenAI client: {str(e)}")
 
 
 def read_code(path):
@@ -59,6 +70,7 @@ def ai_migrate(code):
         f"{code}"
     )
     try:
+        client = get_openai_client()
         resp = (
             client.chat.completions.create(
                 model=MODEL_NAME,
@@ -103,9 +115,25 @@ def run_2to3(src_path, dst_path):
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     with open(src_path, "r", encoding="utf-8") as src_file:
         code = src_file.read()
+    
+    # Validate that the code is not empty
+    if not code.strip():
+        raise ValueError("Input code is empty")
+    
+    # Ensure code ends with newline (required by lib2to3)
+    if not code.endswith('\n'):
+        code += '\n'
+    
     fixer_pkg = "lib2to3.fixes"
     tool = RefactoringTool(get_fixers_from_package(fixer_pkg))
-    tree = tool.refactor_string(code, src_path)
+    
+    try:
+        tree = tool.refactor_string(code, src_path)
+        if tree is None:
+            raise ValueError("lib2to3 failed to parse the code - it may contain syntax errors")
+    except Exception as e:
+        raise ValueError(f"lib2to3 parsing error: {str(e)}")
+    
     with open(dst_path, "w", encoding="utf-8") as dst_file:
         dst_file.write(str(tree))
 
@@ -128,30 +156,36 @@ def migrate_dir(src_dir, dst_dir):
         )
 
 
-def migrate_code_str(code_str):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        src_path = os.path.join(tmpdir, "src.py")
-        dst_path = os.path.join(tmpdir, "dst.py")
-        with open(src_path, "w", encoding="utf-8") as f:
-            f.write(code_str)
-        run_2to3(src_path, dst_path)
-        code3 = read_code(dst_path)
-        code3_improved = ai_migrate(code3)
-        return code3_improved
-
-
 def migrate_code_str(code_str, filename="code.py"):
     with tempfile.TemporaryDirectory() as tmpdir:
         src_path = os.path.join(tmpdir, "src.py")
         dst_path = os.path.join(tmpdir, "dst.py")
-        with open(src_path, "w", encoding="utf-8") as f:
-            f.write(code_str)
-        run_2to3(src_path, dst_path)
-        code3 = read_code(dst_path)
-        code3_improved, explanation = ai_migrate(code3)
-        security_issues = ai_security_check(code3_improved, filename)
+        
+        try:
+            # Validate that the code is not empty
+            if not code_str.strip():
+                raise ValueError("Input code is empty")
+            
+            # Ensure code ends with newline (required by lib2to3)
+            if not code_str.endswith('\n'):
+                code_str += '\n'
+            
+            with open(src_path, "w", encoding="utf-8") as f:
+                f.write(code_str)
+            
+            # Add error handling for lib2to3 parsing
+            try:
+                run_2to3(src_path, dst_path)
+            except Exception as e:
+                raise RuntimeError(f"Failed to parse Python 2 code with lib2to3: {str(e)}")
+            
+            code3 = read_code(dst_path)
+            code3_improved, explanation = ai_migrate(code3)
+            security_issues = ai_security_check(code3_improved, filename)
 
-        return code3_improved, explanation, security_issues
+            return code3_improved, explanation, security_issues
+        except Exception as e:
+            raise RuntimeError(f"Migration failed: {str(e)}")
 
 
 def main():

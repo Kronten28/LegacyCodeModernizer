@@ -23,11 +23,14 @@ struct Args {
     /// Set provider
     provider: String,
     /// Set or Update Api key
-    #[arg(short, long, conflicts_with = "get")]
+    #[arg(short, long, conflicts_with_all = ["get", "delete"])]
     set: Option<String>,
     /// Get provider's api key
-    #[arg(short, long, conflicts_with = "set")]
+    #[arg(short, long, conflicts_with_all = ["set", "delete"])]
     get: bool,
+    /// Delete provider's api key
+    #[arg(short, long, conflicts_with_all = ["set", "get"])]
+    delete: bool,
 }
 
 fn is_key_exist() -> bool {
@@ -163,6 +166,28 @@ fn main() {
                 "key": config.get(&args.provider).unwrap_or(&String::new()),
             })
         );
+        return;
+    }
+
+    if args.delete {
+        let mut config = config;
+        config.remove(&args.provider);
+        
+        match save_config_safe(&config) {
+            Ok(_) => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "success",
+                        "message": format!("API key for {} deleted successfully", args.provider)
+                    })
+                );
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to delete API key: {}", e);
+                std::process::exit(1);
+            }
+        }
         return;
     }
 
