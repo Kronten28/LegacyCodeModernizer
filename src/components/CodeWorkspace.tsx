@@ -322,6 +322,19 @@ const CodeWorkspace: React.FC = () => {
     return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
   };
 
+  function getGitHubTokenFromSettings(): string | null {
+  const settings = localStorage.getItem('legacyCodeModernizer_settings');
+  if (!settings) return null;
+
+  try {
+    const parsed = JSON.parse(settings);
+    return parsed.githubToken || null;
+  } catch (err) {
+    console.error("Error parsing settings from localStorage:", err);
+    return null;
+  }
+}
+
   const fetchGitHubRepo = async () => {
     if (!githubUrl.trim()) {
       toast("Please enter a GitHub URL");
@@ -336,12 +349,12 @@ const CodeWorkspace: React.FC = () => {
 
     setIsLoadingRepo(true);
     const { owner, repo } = parsed;
-
+    const token = getGitHubTokenFromSettings();
     try {
       const buildFileTree = async (path = ""): Promise<GitHubFile[]> => {
         const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
         const res = await axios.get(url, {
-        headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
+        headers: token ? { Authorization: `token ${token}` } : {},
         });
         
         const files: GitHubFile[] = [];
@@ -359,7 +372,7 @@ const CodeWorkspace: React.FC = () => {
           } else if (item.name.endsWith(".py")) {
             // Fetch content for Python files
             const fileRes = await axios.get(item.url, {
-            headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
+            headers: token ? { Authorization: `token ${token}` } : {},
             });
             file.content = atob(fileRes.data.content);
           }
@@ -442,8 +455,9 @@ const CodeWorkspace: React.FC = () => {
   };
 
   const fetchRepos = async (token: string) => {
+    const actualToken = getGitHubTokenFromSettings();
       const res = await axios.get("https://api.github.com/user/repos", {
-        headers: { Authorization: `token ${token}` },
+        headers: { Authorization: `token ${actualToken}` },
       });
       setRepos(res.data);
   };
@@ -635,11 +649,11 @@ const CodeWorkspace: React.FC = () => {
   };
 
   const handlePushToGitHub = async () => {
-    if (!accessToken) {
-      toast("Please authenticate with GitHub first.");
+    if(getGitHubTokenFromSettings() == null){
+      setRepoLoadFailed(true);
+      toast("Please Authenticate with your personal access token");
       return;
     }
-
     if (!repoInput.trim()) {
       toast("Please enter a repository name.");
       return;
@@ -655,7 +669,7 @@ const CodeWorkspace: React.FC = () => {
 
     try {
       await axios.post(`${BACKEND_URL}/github/commit`, {
-       token: accessToken,
+       //token: accessToken,
         repo: `${parsed.owner}/${parsed.repo}`,
         message: commitMessage || `Add converted files to ${normalizedFolder}/`,
         files: Object.entries(convertedFiles).map(([fileName, fileContent]) => ({
@@ -911,19 +925,19 @@ const CodeWorkspace: React.FC = () => {
 
                 <div className="flex justify-end gap-2 mt-6">
                   <DialogClose asChild>
-                    <button className="px-4 py-2 border rounded-md text-sm hover:bg-muted">
-                      Cancel
-                    </button>
+                    
                   </DialogClose>
-                  <button
-                    onClick={() => {
-                      handleLogin()
-                      setRepoLoadFailed(false);
-                      }}
-                    className="ml-2 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
-                  >
-                    Authenticate
-                  </button>
+                  {repoLoadFailed && (
+                          <button
+                            onClick={() => {
+                              setRepoLoadFailed(false);
+                              navigate("/settings")
+                            }}
+                            className="ml-2 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+                          >
+                            Authenticate
+                          </button>
+                        )}
                   <button
                     onClick={handlePushToGitHub}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"

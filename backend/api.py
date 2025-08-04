@@ -5,7 +5,7 @@ from translate import migrate_code_str
 from dotenv import load_dotenv
 import os
 import time
-from api_save import save_api_key, delete_api_key
+from api_save import save_api_key, delete_api_key, save_token, delete_token
 from datetime import datetime
 import base64
 
@@ -76,6 +76,7 @@ def health_check():
             "error": str(e)
         }
         return jsonify(error_response), 500
+    
 
 @app.route("/api/status", methods=["GET"])
 def get_api_status():
@@ -142,12 +143,34 @@ def api_save():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+    
+
+@app.route("/api/gitsave", methods=["POST"])
+def git_save():
+    provider = request.json.get("provider")
+    token = request.json.get("token")
+    try:
+        save_token(provider, token)
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+
 
 @app.route("/api/delete", methods=["POST"])
 def api_delete():
     provider = request.json.get("provider")
     try:
         delete_api_key(provider)
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+@app.route("/api/gitdelete", methods=["POST"])
+def git_delete():
+    provider = request.json.get("provider")
+    try:
+        delete_token(provider)
         return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -198,7 +221,9 @@ def github_commit():
         return '', 204
 
     data = request.get_json()
-    token = data.get("token")
+    from translate import fetch_api_key
+    token = fetch_api_key("GitHub")
+    #token = data.get("token")
     repo = data.get("repo")
     files = data.get("files")
     message = data.get("message", "Batch commit of converted files")

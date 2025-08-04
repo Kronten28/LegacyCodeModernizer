@@ -35,6 +35,15 @@ export interface ApiConnectivity {
   userConfigured: boolean; // Track if user has explicitly configured the API through Settings
 }
 
+export interface GitConnectivity {
+  isConnected: boolean;
+  isChecking: boolean;
+  lastChecked: Date | null;
+  error: string | null;
+  githubConfigured: boolean;
+  userConfigured: boolean; // Track if user has explicitly configured the API through Settings
+}
+
 // Define the workspace state
 export interface WorkspaceState {
   uploadedFiles: Record<string, string>;
@@ -55,6 +64,11 @@ interface AppContextType {
   checkApiConnectivity: () => Promise<void>;
   saveApiKey: (apiKey: string) => Promise<boolean>;
   deleteApiKey: (provider: string) => Promise<boolean>;
+
+  gitHubConnectivity: GitConnectivity;
+  checkGitHubConnectivity: () => Promise<void>;
+  saveGitHubToken: (token: string) => Promise<boolean>;
+  deleteGitHubToken: (provider: string) => Promise<boolean>;
   
   // Workspace state management
   workspaceState: WorkspaceState;
@@ -72,6 +86,16 @@ const initialApiConnectivity: ApiConnectivity = {
   lastChecked: null,
   error: null,
   openaiConfigured: false,
+  userConfigured: false,
+};
+
+// Initial GitHubConnectivity
+const initialGitHubConnectivity: GitConnectivity = {
+  isConnected: false,
+  isChecking: false,
+  lastChecked: null,
+  error: null,
+  githubConfigured: false,
   userConfigured: false,
 };
 
@@ -97,6 +121,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
     } catch (error) {
       return initialApiConnectivity;
+    }
+  });
+
+  const [gitHubConnectivity, setgitHubConnectivity] = useState<GitConnectivity>(() => {
+    // Load userConfigured state from localStorage on initialization
+    try {
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      return {
+        ...initialGitHubConnectivity,
+        userConfigured: savedUserConfigured === 'true'
+      };
+    } catch (error) {
+      return initialGitHubConnectivity;
     }
   });
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(initialWorkspaceState);
@@ -145,6 +182,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []); // No dependencies needed since we're only using setState
 
+
+  const checkGitHubConnectivity = useCallback(async (): Promise<void> => {
+    setgitHubConnectivity(prev => ({ ...prev, isChecking: true, error: null }));
+    
+    try {
+      const response = await fetch('http://localhost:5000/api/health');
+      const data = await response.json();
+      
+      if (response.ok) {
+        
+        setgitHubConnectivity(prev => ({
+          ...prev,
+          isConnected: true,
+          isChecking: false,
+          lastChecked: new Date(),
+          error: null,
+          githubConfigured: data.openai_configured || false,
+          // Keep userConfigured as is, don't modify it based on backend state
+          userConfigured: prev.userConfigured,
+        }));
+      } else {
+        throw new Error(data.error || 'Health check failed');
+      }
+    } catch (error) {
+      setgitHubConnectivity(prev => ({
+        ...prev,
+        isConnected: false,
+        isChecking: false,
+        lastChecked: new Date(),
+        error: error instanceof Error ? error.message : 'Connection failed',
+        githubConfigured: false,
+        userConfigured: false,
+      }));
+    }
+  }, []); // No dependencies needed since we're only using setState
+
   const saveApiKey = useCallback(async (apiKey: string): Promise<boolean> => {
     try {
       const response = await fetch('http://localhost:5000/api/save', {
@@ -187,6 +260,48 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [checkApiConnectivity]);
 
+  const saveGitHubToken = useCallback(async (token: string): Promise<boolean> => {
+    try {
+      const response = await fetch('http://localhost:5000/api/gitsave', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: 'GitHub',
+          token: token,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.status === 'success') {
+        // Mark as user configured and save to localStorage
+        localStorage.setItem('legacyCodeModernizer_userConfigured', 'true');
+        
+        // Update state with userConfigured flag and then check connectivity
+        setgitHubConnectivity(prev => ({
+          ...prev,
+          userConfigured: true,
+          isConnected: true, // Assume connected since API save succeeded
+          githubConfigured: true // Assume configured since we just saved a key
+        }));
+        
+        // Still check connectivity to get accurate server state
+        await checkGitHubConnectivity();
+        return true;
+      } else {
+        throw new Error(data.message || 'Failed to save GitHub Token');
+      }
+    } catch (error) {
+      setgitHubConnectivity(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to save GitHub Token',
+      }));
+      return false;
+    }
+  }, [checkGitHubConnectivity]);
+
   const deleteApiKey = useCallback(async (provider: string): Promise<boolean> => {
     try {
       const response = await fetch('http://localhost:5000/api/delete', {
@@ -224,6 +339,44 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
+
+  const deleteGitHubToken = useCallback(async (provider: string): Promise<boolean> => {
+    try {
+      const response = await fetch('http://localhost:5000/api/gitdelete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: provider,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.status === 'success') {
+        // After deleting API key, update connectivity state and clear localStorage
+        localStorage.setItem('legacyCodeModernizer_userConfigured', 'false');
+        setgitHubConnectivity(prev => ({
+          ...prev,
+          isConnected: false,
+          githubConfigured: false,
+          userConfigured: false,
+          error: null,
+        }));
+        return true;
+      } else {
+        throw new Error(data.message || 'Failed to delete GitHub Token');
+      }
+    } catch (error) {
+      setgitHubConnectivity(prev => ({
+        ...prev,
+        error: error instanceof Error ? error.message : 'Failed to delete GitHub Token',
+      }));
+      return false;
+    }
+  }, []);
+
   const updateWorkspaceState = (updates: Partial<WorkspaceState>) => {
     setWorkspaceState(prev => ({ ...prev, ...updates }));
   };
@@ -247,6 +400,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     initializeApiStatus();
   }, [checkApiConnectivity]); // Only run once on mount
 
+  useEffect(() => {
+    const initializeGitStatus = async () => {
+      // Get the initial userConfigured state from localStorage
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      if (savedUserConfigured === 'true') {
+        await checkGitHubConnectivity();
+      }
+    };
+    
+    initializeGitStatus();
+  }, [checkGitHubConnectivity]); // Only run once on mount
+
   return (
     <AppContext.Provider value={{ 
       reports, 
@@ -256,6 +421,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       checkApiConnectivity,
       saveApiKey,
       deleteApiKey,
+      gitHubConnectivity,
+      checkGitHubConnectivity,
+      saveGitHubToken,
+      deleteGitHubToken,
       workspaceState,
       updateWorkspaceState,
       clearWorkspaceState
