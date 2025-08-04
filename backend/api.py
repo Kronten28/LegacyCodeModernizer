@@ -7,6 +7,7 @@ import os
 import time
 from api_save import save_api_key
 from datetime import datetime
+import base64
 
 load_dotenv()
 app = Flask(__name__)
@@ -18,7 +19,9 @@ GITHUB_CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 GITHUB_CALLBACK_URL = os.getenv("GITHUB_CALLBACK_URL", "http://localhost:5000/github/callback")
 
 origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
-CORS(app, origins=origins)
+CORS(app, resources={r"/*": {"origins": origins}}, supports_credentials=True)
+
+
 
 @app.route("/api/health", methods=["GET"])
 def health_check():
@@ -180,6 +183,76 @@ def github_callback():
         </body>
     </html>
     """
+@app.route("/github/commit", methods=["POST", "OPTIONS"])
+def github_commit():
+    if request.method == "OPTIONS":
+        return '', 204
+
+    data = request.get_json()
+    token = data.get("token")
+    repo = data.get("repo")
+    files = data.get("files")
+    message = data.get("message", "Batch commit of converted files")
+
+    if not all([token, repo, files]) or not isinstance(files, list):
+        return jsonify({"error": "Missing or invalid required fields"}), 400
+
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    branch = "main"
+    try:
+        repo_info = requests.get(f"https://api.github.com/repos/{repo}", headers=headers)
+        if repo_info.status_code == 200:
+            branch = repo_info.json().get("default_branch", "main")
+    except Exception as e:
+        print("Failed to fetch branch info:", e)
+
+    results = []
+
+    for file in files:
+        path = file.get("path")
+        content = file.get("content")
+
+        if not path or content is None:
+            results.append({"path": path, "status": "skipped", "reason": "missing path or content"})
+            continue
+
+        get_file_url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        sha = None
+
+        try:
+            res = requests.get(get_file_url, headers=headers)
+            if res.status_code == 200 and isinstance(res.json(), dict):
+                sha = res.json().get("sha")
+        except Exception as e:
+            print(f"Error checking existing file at {path}: {e}")
+
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+        payload = {
+            "message": message,
+            "content": encoded_content,
+            "branch": branch
+        }
+        if sha:
+            payload["sha"] = sha
+
+        try:
+            put_res = requests.put(get_file_url, headers=headers, json=payload)
+            if put_res.status_code in [200, 201]:
+                results.append({"path": path, "status": "success"})
+            else:
+                err = put_res.json()
+                results.append({"path": path, "status": "error", "details": err})
+        except Exception as e:
+            results.append({"path": path, "status": "error", "details": str(e)})
+
+    return jsonify({"status": "done", "results": results})
+
+
+
 
 if __name__ == "__main__":
     app.run(port=5000)
