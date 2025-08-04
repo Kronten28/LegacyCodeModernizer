@@ -76,6 +76,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
     if (apiConnectivity.isChecking) {
       return <AlertCircle size={12} className="text-yellow-400 animate-pulse" />;
     }
+    if (!apiConnectivity.userConfigured) {
+      return <WifiOff size={12} className="text-gray-400" />;
+    }
     return (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) ? 
       <Wifi size={12} className="text-green-400" /> : 
       <WifiOff size={12} className="text-red-400" />;
@@ -84,6 +87,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
   const getStatusText = () => {
     if (apiConnectivity.isChecking) {
       return 'Checking...';
+    }
+    if (!apiConnectivity.userConfigured) {
+      return 'Not Configured';
     }
     if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
       return 'Connected';
@@ -97,6 +103,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
   const getStatusColor = () => {
     if (apiConnectivity.isChecking) {
       return 'text-yellow-400';
+    }
+    if (!apiConnectivity.userConfigured) {
+      return 'text-gray-400';
     }
     if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
       return 'text-green-400';
@@ -171,7 +180,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
           </div>
         )}
         
-        {(!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) && (
+        {apiConnectivity.userConfigured && (!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) && (
           <button
             onClick={checkApiConnectivity}
             disabled={apiConnectivity.isChecking}
@@ -179,6 +188,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
           >
             {apiConnectivity.isChecking ? 'Checking...' : 'Retry Connection'}
           </button>
+        )}
+        
+        {!apiConnectivity.userConfigured && (
+          <div className="text-center text-slate-500 text-[10px]">
+            Configure API key in Settings
+          </div>
         )}
       </div>
     </div>

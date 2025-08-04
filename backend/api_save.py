@@ -22,6 +22,25 @@ def save_api_key(provider: str, api: str):
             f"Fail to set {provider} api_key, output: {result.stdout}"
         )
 
+def delete_api_key(provider: str):
+    cmd = ["./api_manager/target/release/api_manager", "-d", provider]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr or ""
+        raise RuntimeError(
+            f"Fail to run api_manager, provider={provider}, stderr: {stderr}"
+        ) from e
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}")
+    if data.get("status") != "success":
+        raise RuntimeError(
+            f"Fail to delete {provider} api_key, output: {result.stdout}"
+        )
+
 def main():
     provider = sys.argv[1]
     api = sys.argv[2]

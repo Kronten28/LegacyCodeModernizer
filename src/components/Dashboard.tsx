@@ -225,8 +225,7 @@ const Dashboard: React.FC = () => {
               </button>
               <button
                 className="w-full border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 transition-colors"
-                disabled={!reports.length}
-                onClick={() => navigate("/report")}
+                onClick={() => navigate("/workspace")}
               >
                 View Last Conversion
               </button>

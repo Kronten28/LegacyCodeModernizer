@@ -5,7 +5,7 @@ from translate import migrate_code_str
 from dotenv import load_dotenv
 import os
 import time
-from api_save import save_api_key
+from api_save import save_api_key, delete_api_key
 from datetime import datetime
 import base64
 
@@ -139,6 +139,15 @@ def api_save():
     api = request.json.get("api")
     try:
         save_api_key(provider, api)
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/delete", methods=["POST"])
+def api_delete():
+    provider = request.json.get("provider")
+    try:
+        delete_api_key(provider)
         return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500

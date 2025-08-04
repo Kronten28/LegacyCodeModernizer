@@ -5,6 +5,26 @@ import { useAppContext } from '@/context/AppContext';
 const SummaryReport: React.FC = () => {
   const { reports } = useAppContext();
 
+  // Function to clean markdown formatting from text
+  const cleanMarkdown = (text: string): string => {
+    return text
+      // Remove markdown links [text](url) -> text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Remove backticks for inline code
+      .replace(/`([^`]+)`/g, '$1')
+      // Remove bold/italic markers
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/_([^_]+)_/g, '$1')
+      // Remove bullet point markers at the start
+      .replace(/^\*+\s*/, '')
+      .replace(/^-+\s*/, '')
+      .replace(/^\d+\.\s*/, '')
+      // Clean up extra whitespace
+      .trim();
+  };
+
   // Function to extract and prioritize key changes from explanation text
   const extractKeyChanges = (explanation: string): string[] => {
     const lines = explanation.split('\n').filter(line => line.trim());
@@ -28,7 +48,7 @@ const SummaryReport: React.FC = () => {
     
     // First pass: Look for lines with priority patterns
     for (const line of lines) {
-      const cleanLine = line.replace(/^\*+\s*/, '').replace(/^-+\s*/, '').trim();
+      const cleanLine = cleanMarkdown(line);
       if (!cleanLine) continue;
       
       for (const pattern of priorityPatterns) {
@@ -42,8 +62,8 @@ const SummaryReport: React.FC = () => {
     // Second pass: If we don't have enough key changes, take any bullet points
     if (keyChanges.length < 2) {
       for (const line of lines) {
-        if ((line.startsWith('*') || line.startsWith('-')) && keyChanges.length < 2) {
-          const cleanLine = line.replace(/^\*+\s*/, '').replace(/^-+\s*/, '').trim();
+        if ((line.startsWith('*') || line.startsWith('-') || /^\d+\./.test(line)) && keyChanges.length < 2) {
+          const cleanLine = cleanMarkdown(line);
           if (cleanLine && !keyChanges.includes(cleanLine)) {
             keyChanges.push(cleanLine);
           }
@@ -54,8 +74,8 @@ const SummaryReport: React.FC = () => {
     // Third pass: If still not enough, take any substantial line
     if (keyChanges.length < 2) {
       for (const line of lines) {
-        const cleanLine = line.trim();
-        if (cleanLine.length > 20 && !cleanLine.startsWith('**') && keyChanges.length < 2) {
+        const cleanLine = cleanMarkdown(line);
+        if (cleanLine.length > 20 && keyChanges.length < 2 && !keyChanges.includes(cleanLine)) {
           keyChanges.push(cleanLine);
         }
       }

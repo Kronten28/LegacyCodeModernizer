@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle, Eye, EyeOff, Wifi, WifiOff, Loader2, AlertCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Shield, CheckCircle, Eye, EyeOff, Wifi, WifiOff, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import { toast } from "@/components/ui/sonner";
 import { useAppContext } from '@/context/AppContext';
 
@@ -13,7 +13,7 @@ interface SettingsState {
 }
 
 const Settings: React.FC = () => {
-  const { apiConnectivity, checkApiConnectivity, saveApiKey } = useAppContext();
+  const { apiConnectivity, checkApiConnectivity, saveApiKey, deleteApiKey } = useAppContext();
   const [settings, setSettings] = useState<SettingsState>({
     aiModel: 'GPT-4.1',
     openaiApiKey: '',
@@ -27,11 +27,36 @@ const Settings: React.FC = () => {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   // Load settings from localStorage on component mount
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Load existing API key when user configuration or connection status changes
+  useEffect(() => {
+    loadExistingApiKey();
+  }, [apiConnectivity.userConfigured, apiConnectivity.isConnected, apiConnectivity.openaiConfigured, checkApiConnectivity]);
+
+  const loadExistingApiKey = async () => {
+    try {
+      // Only check if user has previously configured the API
+      if (apiConnectivity.userConfigured) {
+        await checkApiConnectivity();
+        if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
+          // We know there's a key, but we don't show it for security reasons
+          // Just indicate that there's an existing key
+          setSettings(prev => ({ 
+            ...prev, 
+            openaiApiKey: '••••••••••••••••••••••••••••••••••••••••••••••••••••' // Masked key
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error checking existing API key:', error);
+    }
+  };
 
   const loadSettings = () => {
     try {
@@ -144,6 +169,34 @@ const Settings: React.FC = () => {
         description: apiConnectivity.error || "Unable to connect to the API server.",
         icon: <AlertCircle className="text-red-500" size={16} />
       });
+    }
+  };
+
+  const handleClearApiKey = async () => {
+    setIsClearing(true);
+    
+    try {
+      const success = await deleteApiKey('openai');
+      
+      if (success) {
+        setSettings(prev => ({ ...prev, openaiApiKey: '' }));
+        toast("API key cleared successfully!", {
+          description: "Your OpenAI API key has been removed from storage.",
+          icon: <CheckCircle className="text-green-500" size={16} />
+        });
+      } else {
+        toast("Failed to clear API key", {
+          description: "Please try again.",
+          icon: <AlertCircle className="text-red-500" size={16} />
+        });
+      }
+    } catch (error) {
+      toast("Error clearing API key", {
+        description: "An unexpected error occurred.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -296,6 +349,26 @@ const Settings: React.FC = () => {
                       </>
                     )}
                   </button>
+                  
+                  {(apiConnectivity.isConnected && apiConnectivity.openaiConfigured) && (
+                    <button
+                      onClick={handleClearApiKey}
+                      disabled={isClearing}
+                      className="border border-red-300 text-red-700 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    >
+                      {isClearing ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Clearing...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={14} />
+                          Clear API Key
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {/* Connection status and error display */}
