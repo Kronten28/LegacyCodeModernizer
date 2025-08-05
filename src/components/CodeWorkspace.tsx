@@ -673,7 +673,7 @@ const CodeWorkspace: React.FC = () => {
         repo: `${parsed.owner}/${parsed.repo}`,
         message: commitMessage || `Add converted files to ${normalizedFolder}/`,
         files: Object.entries(convertedFiles).map(([fileName, fileContent]) => ({
-          path: `${normalizedFolder}/${fileName.replace(/\.py$/, "_converted.py")}`,
+          path: `${normalizedFolder}/${fileName}`,
           content: fileContent
         }))
       });

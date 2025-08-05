@@ -14,10 +14,6 @@ app = Flask(__name__)
 
 allowed_origins = os.getenv("FRONTEND_ORIGIN", "http://localhost:8080")
 
-GITHUB_CLIENT_ID = os.getenv("CLIENT_ID")
-GITHUB_CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-GITHUB_CALLBACK_URL = os.getenv("GITHUB_CALLBACK_URL", "http://localhost:5000/github/callback")
-
 origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
 CORS(app, resources={r"/*": {"origins": origins}}, supports_credentials=True)
 
@@ -175,46 +171,7 @@ def git_delete():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/github/login")
-def github_login():
-    return redirect(
-        f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&scope=repo"
-    )
 
-@app.route("/github/callback")
-def github_callback():
-    code = request.args.get("code")
-    if not code:
-        return "<script>window.close();</script>"
-
-    token_res = requests.post(
-        "https://github.com/login/oauth/access_token",
-        headers={"Accept": "application/json"},
-        data={
-            "client_id": GITHUB_CLIENT_ID,
-            "client_secret": GITHUB_CLIENT_SECRET,
-            "code": code,
-        },
-    )
-    token_data = token_res.json()
-    access_token = token_data.get("access_token")
-
-    if not access_token:
-        return "<script>window.close();</script>"
-
-    return f"""
-    <html>
-        <body>
-            <script>
-                window.opener.postMessage({{
-                    type: 'github_token',
-                    token: '{access_token}'
-                }}, '*');
-                window.close();
-            </script>
-        </body>
-    </html>
-    """
 @app.route("/github/commit", methods=["POST", "OPTIONS"])
 def github_commit():
     if request.method == "OPTIONS":
@@ -223,7 +180,6 @@ def github_commit():
     data = request.get_json()
     from translate import fetch_api_key
     token = fetch_api_key("GitHub")
-    #token = data.get("token")
     repo = data.get("repo")
     files = data.get("files")
     message = data.get("message", "Batch commit of converted files")
