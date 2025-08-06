@@ -10,7 +10,7 @@
     "build:electron": "tsc -p tsconfig.electron.json && node renameMain.cjs && cd ./backend/api_manager && cargo build --release",
     "start": "electron-forge start",
     "build:dev:linux": "vite build --mode development && cd ./backend/api_manager && cargo build --release && cd .. && pyinstaller api.py --onefile --add-binary ./api_manager/target/release/api_manager:. && mv ./dist/api .",
-    "build:dev:windows": "vite build --mode development && cd ./backend/api_manager && cargo build --release && cd .. && pyinstaller api.py --onefile --add-binary ./api_manager/target/release/api_manager.exe:. && mv ./dist/api.exe .",
+    "build:dev:windows": "vite build --mode development && cd ./backend/api_manager && cargo build --release && cd .. && pyinstaller api.py --onefile --add-binary ./api_manager/target/release/api_manager.exe:. && move ./dist/api.exe .",
     "lint": "eslint .",
     "preview": "vite preview",
     "package": "electron-forge package",

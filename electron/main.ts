@@ -4,36 +4,61 @@ import * as path from "path";
 
 const isDev = process.env.NODE_ENV === "development";
 let backendProc: ChildProcess;
+
 function startBackend() {
-  const backendDir = path.resolve(__dirname, "../backend");
+  // Determine the correct path to the backend executable
+  const backendExecutablePath = isDev
+    // In development, the executable is in the `backend/dist` folder
+    ? path.join(__dirname, "../backend/api")
+    // In production, the executable is copied to the resources folder
+    : path.join(process.resourcesPath, "api");
+  
   console.log(
-    `[Electron Main]: Attempting to start backend from: ${backendDir}/api.py`
+    `[Electron Main]: Attempting to start backend from: ${backendExecutablePath}`
   );
-  backendProc = spawn("python", ["api.py"], {
-    cwd: backendDir,
-    stdio: "pipe",
-  });
 
-  backendProc.stdout?.on("data", (data) => {
-    console.log(`[Backend stdout]: ${data.toString().trim()}`);
-  });
+  try {
+    // Spawn the binary directly, no need for `python` or the `.py` file
+    backendProc = spawn(backendExecutablePath, [], {
+      cwd: path.dirname(backendExecutablePath), // Set working directory to where the executable is
+      stdio: "pipe",
+    });
 
-  backendProc.stderr?.on("data", (data) => {
-    console.error(`[Backend stderr]: ${data.toString().trim()}`);
-  });
+    backendProc.stdout?.on("data", (data) => {
+      console.log(`[Backend stdout]: ${data.toString().trim()}`);
+    });
 
-  backendProc.on("close", (code, signal) => {
-    console.log(`[Backend exited with code ${code}, signal ${signal}]`);
-    if (code !== 0) {
-      console.error("[Electron Main]: Backend process terminated abnormally!");
+    backendProc.stderr?.on("data", (data) => {
+      console.error(`[Backend stderr]: ${data.toString().trim()}`);
+    });
+
+    backendProc.on("close", (code, signal) => {
+      console.log(`[Backend exited with code ${code}, signal ${signal}]`);
+      if (code !== 0) {
+        console.error("[Electron Main]: Backend process terminated abnormally!");
+      }
+    });
+
+    backendProc.on("error", (err) => {
+      // Add a type guard to check if 'err' is an Error object
+      if (err instanceof Error) {
+        console.error(
+          `[Electron Main]: Failed to start backend process: ${err.message}`
+        );
+      } else {
+        console.error(
+          `[Electron Main]: Failed to start backend process: ${err}`
+        );
+      }
+    });
+  } catch (error) {
+    // Also add a type guard to the catch block's error variable
+    if (error instanceof Error) {
+        console.error(`[Electron Main]: Failed to spawn backend process: ${error.message}`);
+    } else {
+        console.error(`[Electron Main]: Failed to spawn backend process: ${error}`);
     }
-  });
-
-  backendProc.on("error", (err) => {
-    console.error(
-      `[Electron Main]: Failed to start backend process: ${err.message}`
-    );
-  });
+  }
 }
 
 function createWindow() {
