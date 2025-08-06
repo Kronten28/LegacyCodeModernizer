@@ -33,11 +33,45 @@ const Settings: React.FC = () => {
   const [isGitConnecting, setIsGitConnecting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isGitClearing, setIsGitClearing] = useState(false);
+  
+  // Track whether we're showing masked values vs actual input
+  const [hasExistingApiKey, setHasExistingApiKey] = useState(false);
+  const [hasExistingToken, setHasExistingToken] = useState(false);
+  const [actualApiKey, setActualApiKey] = useState('');
+  const [actualToken, setActualToken] = useState('');
 
   // Load settings from localStorage on component mount
   useEffect(() => {
     loadSettings();
+    // Clean up any corrupted API keys on first load
+    cleanupCorruptedKeys();
   }, []);
+
+  // Clean up any masked/corrupted API keys that might be stored
+  const cleanupCorruptedKeys = async () => {
+    try {
+      // Check if there are any masked values in the backend by testing connectivity
+      await checkApiConnectivity();
+      if (apiConnectivity.error && apiConnectivity.error.includes('ascii')) {
+        // This suggests the stored key has encoding issues, clear it
+        await deleteApiKey('openai');
+        console.log('Cleaned up corrupted OpenAI API key');
+      }
+    } catch (error) {
+      console.log('Error during cleanup, continuing normally:', error);
+    }
+    
+    try {
+      await checkGitHubConnectivity();
+      if (gitHubConnectivity.error && gitHubConnectivity.error.includes('ascii')) {
+        // This suggests the stored token has encoding issues, clear it
+        await deleteGitHubToken('GitHub');
+        console.log('Cleaned up corrupted GitHub token');
+      }
+    } catch (error) {
+      console.log('Error during GitHub cleanup, continuing normally:', error);
+    }
+  };
 
   // Load existing API key when user configuration or connection status changes
   useEffect(() => {
@@ -56,14 +90,20 @@ const Settings: React.FC = () => {
         if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
           // We know there's a key, but we don't show it for security reasons
           // Just indicate that there's an existing key
+          setHasExistingApiKey(true);
           setSettings(prev => ({ 
             ...prev, 
             openaiApiKey: '••••••••••••••••••••••••••••••••••••••••••••••••••••' // Masked key
           }));
+        } else {
+          setHasExistingApiKey(false);
         }
+      } else {
+        setHasExistingApiKey(false);
       }
     } catch (error) {
       console.error('Error checking existing API key:', error);
+      setHasExistingApiKey(false);
     }
   };
 
@@ -73,17 +113,22 @@ const Settings: React.FC = () => {
       if (gitHubConnectivity.userConfigured) {
         await checkGitHubConnectivity();
         if (gitHubConnectivity.isConnected && gitHubConnectivity.githubConfigured) {
-          // We know there's a key, but we don't show it for security reasons
-          // Just indicate that there's an existing key
+          // We know there's a token, but we don't show it for security reasons
+          // Just indicate that there's an existing token
+          setHasExistingToken(true);
           setSettings(prev => ({ 
             ...prev, 
-            githubToken: '••••••••••••••••••••••••••••••••••••••••••••••••••••' // Masked key
+            githubToken: '••••••••••••••••••••••••••••••••••••••••••••••••••••' // Masked token
           }));
-          
+        } else {
+          setHasExistingToken(false);
         }
+      } else {
+        setHasExistingToken(false);
       }
     } catch (error) {
-      console.error('Error checking existing API key:', error);
+      console.error('Error checking existing token:', error);
+      setHasExistingToken(false);
     }
   };
 
@@ -94,8 +139,9 @@ const Settings: React.FC = () => {
         const parsedSettings = JSON.parse(savedSettings);
         const mergedSettings: SettingsState = {
         aiModel: parsedSettings.aiModel || 'GPT-4.1',
-        openaiApiKey: parsedSettings.openaiApiKey || '',
-        githubToken: parsedSettings.githubToken || '',
+        // Clean up any masked values that might have been saved previously
+        openaiApiKey: (parsedSettings.openaiApiKey && parsedSettings.openaiApiKey.includes('••••')) ? '' : (parsedSettings.openaiApiKey || ''),
+        githubToken: (parsedSettings.githubToken && parsedSettings.githubToken.includes('••••')) ? '' : (parsedSettings.githubToken || ''),
         language: parsedSettings.language || 'en',
         secureMode: parsedSettings.secureMode ?? true,
         autoScan: parsedSettings.autoScan ?? true,
@@ -119,9 +165,13 @@ const Settings: React.FC = () => {
       // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
+      // Don't save masked API keys/tokens to localStorage
       const settingsToSave = {
         ...settings,
-        lastSaved: new Date().toISOString()
+        lastSaved: new Date().toISOString(),
+        // Remove masked values - they shouldn't be persisted
+        openaiApiKey: hasExistingApiKey ? '' : settings.openaiApiKey,
+        githubToken: hasExistingToken ? '' : settings.githubToken
       };
       
       // Save to localStorage
@@ -156,15 +206,44 @@ const Settings: React.FC = () => {
   };
 
   const handleApiKeyChange = (newApiKey: string) => {
+    // If user starts typing, clear the masked value and use actual input
+    if (hasExistingApiKey && newApiKey !== settings.openaiApiKey) {
+      setHasExistingApiKey(false);
+    }
+    setActualApiKey(newApiKey);
     setSettings(prev => ({ ...prev, openaiApiKey: newApiKey }));
   };
 
   const handleTokenChange = (newToken: string) => {
+    // If user starts typing, clear the masked value and use actual input
+    if (hasExistingToken && newToken !== settings.githubToken) {
+      setHasExistingToken(false);
+    }
+    setActualToken(newToken);
     setSettings(prev => ({ ...prev, githubToken: newToken }));
   };
 
   const handleConnectApi = async () => {
-    if (!settings.openaiApiKey.trim()) {
+    // If we have an existing key, just test the connection
+    if (hasExistingApiKey) {
+      await checkApiConnectivity();
+      if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
+        toast("API connection confirmed!", {
+          description: "Successfully connected to OpenAI API using existing key.",
+          icon: <CheckCircle className="text-green-500" size={16} />
+        });
+      } else {
+        toast("Connection test failed", {
+          description: apiConnectivity.error || "Unable to connect with existing API key.",
+          icon: <AlertCircle className="text-red-500" size={16} />
+        });
+      }
+      return;
+    }
+
+    // For new API key input
+    const keyToUse = actualApiKey.trim() || settings.openaiApiKey.trim();
+    if (!keyToUse) {
       toast("Please enter an API key", {
         description: "An OpenAI API key is required to establish connection.",
         icon: <AlertCircle className="text-red-500" size={16} />
@@ -175,13 +254,20 @@ const Settings: React.FC = () => {
     setIsConnecting(true);
     
     try {
-      const success = await saveApiKey(settings.openaiApiKey.trim());
+      const success = await saveApiKey(keyToUse);
       
       if (success) {
         toast("API connection established!", {
           description: "Successfully connected to OpenAI API.",
           icon: <CheckCircle className="text-green-500" size={16} />
         });
+        // Reset state for future connections
+        setHasExistingApiKey(true);
+        setActualApiKey('');
+        setSettings(prev => ({ 
+          ...prev, 
+          openaiApiKey: '••••••••••••••••••••••••••••••••••••••••••••••••••••'
+        }));
       } else {
         toast("Failed to establish API connection", {
           description: apiConnectivity.error || "Please check your API key and try again.",
@@ -199,9 +285,28 @@ const Settings: React.FC = () => {
   };
 
   const handleConnectToken = async () => {
-    if (!settings.githubToken.trim()) {
-      toast("Please enter an personal access token", {
-        description: "An personal access token is required to establish a connection to GitHub.",
+    // If we have an existing token, just test the connection
+    if (hasExistingToken) {
+      await checkGitHubConnectivity();
+      if (gitHubConnectivity.isConnected && gitHubConnectivity.githubConfigured) {
+        toast("GitHub connection confirmed!", {
+          description: "Successfully connected to GitHub using existing token.",
+          icon: <CheckCircle className="text-green-500" size={16} />
+        });
+      } else {
+        toast("Connection test failed", {
+          description: gitHubConnectivity.error || "Unable to connect with existing token.",
+          icon: <AlertCircle className="text-red-500" size={16} />
+        });
+      }
+      return;
+    }
+
+    // For new token input
+    const tokenToUse = actualToken.trim() || settings.githubToken.trim();
+    if (!tokenToUse) {
+      toast("Please enter a personal access token", {
+        description: "A personal access token is required to establish a connection to GitHub.",
         icon: <AlertCircle className="text-red-500" size={16} />
       });
       return;
@@ -210,13 +315,20 @@ const Settings: React.FC = () => {
     setIsGitConnecting(true);
     
     try {
-      const success = await saveGitHubToken(settings.githubToken.trim());
+      const success = await saveGitHubToken(tokenToUse);
       
       if (success) {
         toast("GitHub connection established!", {
           description: "Successfully connected to GitHub.",
           icon: <CheckCircle className="text-green-500" size={16} />
         });
+        // Reset state for future connections
+        setHasExistingToken(true);
+        setActualToken('');
+        setSettings(prev => ({ 
+          ...prev, 
+          githubToken: '••••••••••••••••••••••••••••••••••••••••••••••••••••'
+        }));
       } else {
         toast("Failed to establish GitHub connection", {
           description: gitHubConnectivity.error || "Please check your personal access token and try again.",
@@ -233,41 +345,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleTestConnection = async () => {
-    await checkApiConnectivity();
-    
-    if (apiConnectivity.isConnected) {
-      toast("Connection test successful!", {
-        description: apiConnectivity.openaiConfigured ? 
-          "API is connected and OpenAI is configured." : 
-          "API is connected but OpenAI key needs to be configured.",
-        icon: <CheckCircle className="text-green-500" size={16} />
-      });
-    } else {
-      toast("Connection test failed", {
-        description: apiConnectivity.error || "Unable to connect to the API server.",
-        icon: <AlertCircle className="text-red-500" size={16} />
-      });
-    }
-  };
-
-  const handleTestGitConnection = async () => {
-    await checkGitHubConnectivity();
-    
-    if (gitHubConnectivity.isConnected) {
-      toast("Connection test successful!", {
-        description: gitHubConnectivity.githubConfigured ? 
-          "GitHub is connected and token is configured." : 
-          "GitHub is connected but token needs to be configured.",
-        icon: <CheckCircle className="text-green-500" size={16} />
-      });
-    } else {
-      toast("Connection test failed", {
-        description: gitHubConnectivity.error || "Unable to connect to the GitHub.",
-        icon: <AlertCircle className="text-red-500" size={16} />
-      });
-    }
-  };
 
   const handleClearApiKey = async () => {
     setIsClearing(true);
@@ -277,6 +354,8 @@ const Settings: React.FC = () => {
       
       if (success) {
         setSettings(prev => ({ ...prev, openaiApiKey: '' }));
+        setHasExistingApiKey(false);
+        setActualApiKey('');
         toast("API key cleared successfully!", {
           description: "Your OpenAI API key has been removed from storage.",
           icon: <CheckCircle className="text-green-500" size={16} />
@@ -306,7 +385,9 @@ const Settings: React.FC = () => {
       
       if (success) {
         setSettings(prev => ({ ...prev, githubToken: '' }));
-        toast("personal access token cleared successfully!", {
+        setHasExistingToken(false);
+        setActualToken('');
+        toast("Personal access token cleared successfully!", {
           description: "Your GitHub personal access token has been removed from storage.",
           icon: <CheckCircle className="text-green-500" size={16} />
         });
@@ -436,13 +517,18 @@ const Settings: React.FC = () => {
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   <em>Used to authenticate and run code conversion through OpenAI. Your key is stored securely.</em>
+                  {hasExistingApiKey && (
+                    <span className="block text-blue-600 font-medium mt-1">
+                      ✓ API key is configured. Clear the field to enter a new key.
+                    </span>
+                  )}
                 </p>
                 
                 {/* Connection controls */}
                 <div className="flex items-center gap-2 mt-3">
                   <button
                     onClick={handleConnectApi}
-                    disabled={isConnecting || !settings.openaiApiKey.trim()}
+                    disabled={isConnecting || (!hasExistingApiKey && !settings.openaiApiKey.trim())}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   >
                     {isConnecting ? (
@@ -453,25 +539,7 @@ const Settings: React.FC = () => {
                     ) : (
                       <>
                         <Wifi size={14} />
-                        Connect API
-                      </>
-                    )}
-                  </button>
-                  
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={apiConnectivity.isChecking}
-                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    {apiConnectivity.isChecking ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Testing...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={14} />
-                        Test Connection
+                        {hasExistingApiKey ? 'Test API Connection' : 'Connect API'}
                       </>
                     )}
                   </button>
@@ -590,13 +658,18 @@ const Settings: React.FC = () => {
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   <em>Used to import and commit code to GitHub repositories using a personal access token. Your token is stored securely.</em>
+                  {hasExistingToken && (
+                    <span className="block text-blue-600 font-medium mt-1">
+                      ✓ GitHub token is configured. Clear the field to enter a new token.
+                    </span>
+                  )}
                 </p>
                 
                 {/* Connection controls */}
                 <div className="flex items-center gap-2 mt-3">
                   <button
                     onClick={handleConnectToken}
-                    disabled={isGitConnecting || !settings.githubToken.trim()}
+                    disabled={isGitConnecting || (!hasExistingToken && !settings.githubToken.trim())}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   >
                     {isGitConnecting ? (
@@ -607,25 +680,7 @@ const Settings: React.FC = () => {
                     ) : (
                       <>
                         <Wifi size={14} />
-                        Connect GitHub
-                      </>
-                    )}
-                  </button>
-                  
-                  <button
-                    onClick={handleTestGitConnection}
-                    disabled={gitHubConnectivity.isChecking}
-                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    {gitHubConnectivity.isChecking ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Testing...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={14} />
-                        Test Connection
+                        {hasExistingToken ? 'Test GitHub Connection' : 'Connect GitHub'}
                       </>
                     )}
                   </button>

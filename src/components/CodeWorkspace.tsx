@@ -379,9 +379,22 @@ const CodeWorkspace: React.FC = () => {
     try {
       const buildFileTree = async (path = ""): Promise<GitHubFile[]> => {
         const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-        const res = await axios.get(url, {
-        headers: token ? { Authorization: `token ${token}` } : {},
-        });
+        const headers: Record<string, string> = {};
+        
+        // Only add authentication if token exists and is valid (GitHub tokens are typically 40+ chars)
+        if (token && token.trim().length > 20) {
+          try {
+            // Ensure the token is properly encoded for HTTP headers
+            const cleanToken = token.trim().replace(/[^\x00-\x7F]/g, '');
+            if (cleanToken.length > 20) { // Only use if cleaning didn't remove too much
+              headers['Authorization'] = `token ${cleanToken}`;
+            }
+          } catch (e) {
+            console.warn('Token cleaning failed, proceeding without authentication');
+          }
+        }
+        
+        const res = await axios.get(url, { headers });
         
         const files: GitHubFile[] = [];
         for (const item of res.data) {
@@ -397,9 +410,22 @@ const CodeWorkspace: React.FC = () => {
             file.children = await buildFileTree(item.path);
           } else if (item.name.endsWith(".py")) {
             // Fetch content for Python files
-            const fileRes = await axios.get(item.url, {
-            headers: token ? { Authorization: `token ${token}` } : {},
-            });
+            const fileHeaders: Record<string, string> = {};
+            
+            // Only add authentication if token exists and is valid
+            if (token && token.trim().length > 20) {
+              try {
+                // Ensure the token is properly encoded for HTTP headers
+                const cleanToken = token.trim().replace(/[^\x00-\x7F]/g, '');
+                if (cleanToken.length > 20) { // Only use if cleaning didn't remove too much
+                  fileHeaders['Authorization'] = `token ${cleanToken}`;
+                }
+              } catch (e) {
+                console.warn('Token cleaning failed, proceeding without authentication');
+              }
+            }
+            
+            const fileRes = await axios.get(item.url, { headers: fileHeaders });
             file.content = atob(fileRes.data.content);
           }
 
@@ -482,10 +508,14 @@ const CodeWorkspace: React.FC = () => {
 
   const fetchRepos = async (token: string) => {
     const actualToken = getGitHubTokenFromSettings();
+    if (actualToken) {
+      // Ensure the token is properly encoded for HTTP headers
+      const cleanToken = actualToken.trim().replace(/[^\x00-\x7F]/g, '');
       const res = await axios.get("https://api.github.com/user/repos", {
-        headers: { Authorization: `token ${actualToken}` },
+        headers: { Authorization: `token ${cleanToken}` },
       });
       setRepos(res.data);
+    }
   };
 
   const handleLogin = () => {
