@@ -17,7 +17,12 @@ allowed_origins = os.getenv("FRONTEND_ORIGIN", "http://localhost:8080")
 origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
 CORS(app, resources={r"/*": {"origins": origins}}, supports_credentials=True)
 
-
+def get_resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 @app.route("/api/health", methods=["GET"])
 def health_check():
@@ -33,7 +38,7 @@ def health_check():
         
         # Check if OpenAI API key is configured
         try:
-            from translate import fetch_api_key
+            from api_save import fetch_api_key
             api_key = fetch_api_key("openai")
             if api_key:
                 health_status["openai_configured"] = True
@@ -95,7 +100,7 @@ def get_api_status():
         
         # Check API key availability
         try:
-            from translate import fetch_api_key
+            from api_save import fetch_api_key
             api_key = fetch_api_key("openai")
             status["api_key_configured"] = bool(api_key)
         except Exception:
@@ -178,7 +183,7 @@ def github_commit():
         return '', 204
 
     data = request.get_json()
-    from translate import fetch_api_key
+    from api_save import fetch_api_key
     token = fetch_api_key("GitHub")
     repo = data.get("repo")
     files = data.get("files")
