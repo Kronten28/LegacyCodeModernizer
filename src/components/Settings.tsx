@@ -6,6 +6,7 @@ import { useAppContext } from '@/context/AppContext';
 interface SettingsState {
   aiModel: string;
   openaiApiKey: string;
+  githubToken: string;
   language: string;
   secureMode: boolean;
   autoScan: boolean;
@@ -13,10 +14,11 @@ interface SettingsState {
 }
 
 const Settings: React.FC = () => {
-  const { apiConnectivity, checkApiConnectivity, saveApiKey, deleteApiKey } = useAppContext();
+  const { apiConnectivity, checkApiConnectivity, saveApiKey, deleteApiKey,gitHubConnectivity, checkGitHubConnectivity, saveGitHubToken, deleteGitHubToken } = useAppContext();
   const [settings, setSettings] = useState<SettingsState>({
     aiModel: 'GPT-4.1',
     openaiApiKey: '',
+    githubToken: '',
     language: 'en',
     secureMode: true,
     autoScan: true,
@@ -26,8 +28,11 @@ const Settings: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showGitToken, setShowGitToken] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isGitConnecting, setIsGitConnecting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isGitClearing, setIsGitClearing] = useState(false);
 
   // Load settings from localStorage on component mount
   useEffect(() => {
@@ -38,6 +43,10 @@ const Settings: React.FC = () => {
   useEffect(() => {
     loadExistingApiKey();
   }, [apiConnectivity.userConfigured, apiConnectivity.isConnected, apiConnectivity.openaiConfigured, checkApiConnectivity]);
+
+  useEffect(() => {
+    loadExistingToken();
+  }, [gitHubConnectivity.userConfigured, gitHubConnectivity.isConnected, gitHubConnectivity.githubConfigured, checkGitHubConnectivity]);
 
   const loadExistingApiKey = async () => {
     try {
@@ -58,12 +67,41 @@ const Settings: React.FC = () => {
     }
   };
 
+  const loadExistingToken = async () => {
+    try {
+      // Only check if user has previously configured the API
+      if (gitHubConnectivity.userConfigured) {
+        await checkGitHubConnectivity();
+        if (gitHubConnectivity.isConnected && gitHubConnectivity.githubConfigured) {
+          // We know there's a key, but we don't show it for security reasons
+          // Just indicate that there's an existing key
+          setSettings(prev => ({ 
+            ...prev, 
+            githubToken: '••••••••••••••••••••••••••••••••••••••••••••••••••••' // Masked key
+          }));
+          
+        }
+      }
+    } catch (error) {
+      console.error('Error checking existing API key:', error);
+    }
+  };
+
   const loadSettings = () => {
     try {
       const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings);
-        setSettings(parsedSettings);
+        const mergedSettings: SettingsState = {
+        aiModel: parsedSettings.aiModel || 'GPT-4.1',
+        openaiApiKey: parsedSettings.openaiApiKey || '',
+        githubToken: parsedSettings.githubToken || '',
+        language: parsedSettings.language || 'en',
+        secureMode: parsedSettings.secureMode ?? true,
+        autoScan: parsedSettings.autoScan ?? true,
+        complianceStandards: parsedSettings.complianceStandards || ['hipaa', 'iso27001']
+      };
+        setSettings(mergedSettings);
         setLastSaved(new Date(parsedSettings.lastSaved || Date.now()));
       }
     } catch (error) {
@@ -111,12 +149,18 @@ const Settings: React.FC = () => {
     }
   };
 
+  
+
   const handleModelChange = (newModel: string) => {
     setSettings(prev => ({ ...prev, aiModel: newModel }));
   };
 
   const handleApiKeyChange = (newApiKey: string) => {
     setSettings(prev => ({ ...prev, openaiApiKey: newApiKey }));
+  };
+
+  const handleTokenChange = (newToken: string) => {
+    setSettings(prev => ({ ...prev, githubToken: newToken }));
   };
 
   const handleConnectApi = async () => {
@@ -154,6 +198,41 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleConnectToken = async () => {
+    if (!settings.githubToken.trim()) {
+      toast("Please enter an personal access token", {
+        description: "An personal access token is required to establish a connection to GitHub.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+      return;
+    }
+
+    setIsGitConnecting(true);
+    
+    try {
+      const success = await saveGitHubToken(settings.githubToken.trim());
+      
+      if (success) {
+        toast("GitHub connection established!", {
+          description: "Successfully connected to GitHub.",
+          icon: <CheckCircle className="text-green-500" size={16} />
+        });
+      } else {
+        toast("Failed to establish GitHub connection", {
+          description: gitHubConnectivity.error || "Please check your personal access token and try again.",
+          icon: <AlertCircle className="text-red-500" size={16} />
+        });
+      }
+    } catch (error) {
+      toast("Connection error", {
+        description: "An unexpected error occurred while connecting.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+    } finally {
+      setIsGitConnecting(false);
+    }
+  };
+
   const handleTestConnection = async () => {
     await checkApiConnectivity();
     
@@ -167,6 +246,24 @@ const Settings: React.FC = () => {
     } else {
       toast("Connection test failed", {
         description: apiConnectivity.error || "Unable to connect to the API server.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+    }
+  };
+
+  const handleTestGitConnection = async () => {
+    await checkGitHubConnectivity();
+    
+    if (gitHubConnectivity.isConnected) {
+      toast("Connection test successful!", {
+        description: gitHubConnectivity.githubConfigured ? 
+          "GitHub is connected and token is configured." : 
+          "GitHub is connected but token needs to be configured.",
+        icon: <CheckCircle className="text-green-500" size={16} />
+      });
+    } else {
+      toast("Connection test failed", {
+        description: gitHubConnectivity.error || "Unable to connect to the GitHub.",
         icon: <AlertCircle className="text-red-500" size={16} />
       });
     }
@@ -197,6 +294,35 @@ const Settings: React.FC = () => {
       });
     } finally {
       setIsClearing(false);
+    }
+  };
+
+
+  const handleClearToken = async () => {
+    setIsGitClearing(true);
+    
+    try {
+      const success = await deleteGitHubToken('openai');
+      
+      if (success) {
+        setSettings(prev => ({ ...prev, githubToken: '' }));
+        toast("personal access token cleared successfully!", {
+          description: "Your GitHub personal access token has been removed from storage.",
+          icon: <CheckCircle className="text-green-500" size={16} />
+        });
+      } else {
+        toast("Failed to clear token", {
+          description: "Please try again.",
+          icon: <AlertCircle className="text-red-500" size={16} />
+        });
+      }
+    } catch (error) {
+      toast("Error clearing token", {
+        description: "An unexpected error occurred.",
+        icon: <AlertCircle className="text-red-500" size={16} />
+      });
+    } finally {
+      setIsGitClearing(false);
     }
   };
 
@@ -413,6 +539,140 @@ const Settings: React.FC = () => {
                 <br />
                 <strong>GPT-3.5 Turbo</strong> is the most cost-effective option.
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Key className="text-blue-500" size={20} />
+                GitHub Configuration
+              </h3>
+              <div className="flex items-center gap-2">
+                {gitHubConnectivity.isConnected ? (
+                  <div className="flex items-center gap-1 text-green-600 text-sm">
+                    <Wifi size={16} />
+                    <span>Connected</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-red-600 text-sm">
+                    <WifiOff size={16} />
+                    <span>Disconnected</span>
+                  </div>
+                )}
+                {gitHubConnectivity.lastChecked && (
+                  <span className="text-xs text-gray-500">
+                    Last checked: {gitHubConnectivity.lastChecked.toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Personal Token
+                </label>
+                <div className="relative">
+                  <input
+                    type={showGitToken ? "text" : "password"}
+                    value={settings.githubToken}
+                    onChange={(e) => handleTokenChange(e.target.value)}
+                    placeholder="Enter your GitHub Personal Access Token"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGitToken(!showGitToken)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                  >
+                    {showGitToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  <em>Used to import and commit code to GitHub repositories using a personal access token. Your token is stored securely.</em>
+                </p>
+                
+                {/* Connection controls */}
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={handleConnectToken}
+                    disabled={isGitConnecting || !settings.githubToken.trim()}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    {isGitConnecting ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Wifi size={14} />
+                        Connect GitHub
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={handleTestGitConnection}
+                    disabled={gitHubConnectivity.isChecking}
+                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    {gitHubConnectivity.isChecking ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={14} />
+                        Test Connection
+                      </>
+                    )}
+                  </button>
+                  
+                  {(gitHubConnectivity.isConnected && gitHubConnectivity.githubConfigured) && (
+                    <button
+                      onClick={handleClearToken}
+                      disabled={isGitClearing}
+                      className="border border-red-300 text-red-700 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    >
+                      {isGitClearing ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Clearing...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={14} />
+                          Clear Token
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {/* Connection status and error display */}
+                {gitHubConnectivity.error && (
+                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-700 text-sm">
+                      <AlertCircle size={16} />
+                      <span className="font-medium">Connection Error</span>
+                    </div>
+                    <p className="text-red-600 text-sm mt-1">{gitHubConnectivity.error}</p>
+                  </div>
+                )}
+
+                {gitHubConnectivity.isConnected && gitHubConnectivity.githubConfigured && (
+                  <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-green-700 text-sm">
+                      <CheckCircle size={16} />
+                      <span className="font-medium">GitHub Connected</span>
+                    </div>
+                    <p className="text-green-600 text-sm mt-1">GitHub is configured and ready to use.</p>
+                  </div>
+                )}
+              </div>
+              
             </div>
           </div>
 

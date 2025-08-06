@@ -192,7 +192,7 @@ def main():
     src = sys.argv[1]
     if os.path.isfile(src):
         res = migrate_code_str(read_code(src))
-        print(f"Code: \n{res[0]}\nExplain: {res[1]}\nSecurity Issues: {res[2]}")
+        #print(f"Code: \n{res[0]}\nExplain: {res[1]}\nSecurity Issues: {res[2]}")
 
 
 if __name__ == "__main__":

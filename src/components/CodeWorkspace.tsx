@@ -65,10 +65,14 @@ const CodeWorkspace: React.FC = () => {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubFileTree, setGithubFileTree] = useState<GitHubFile[]>([]);
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
-  const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [githubModalOpenPython2, setGithubModalOpenPython2] = useState(false);
+  const [githubModalOpenPython3, setGithubModalOpenPython3] = useState(false);
   const [repoLoadFailed, setRepoLoadFailed] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [repos, setRepos] = useState<any[]>([]);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [targetPath, setTargetPath] = useState(`converted/${selectedFileName.replace(/\.py$/, "_converted.py")}`);
+  const [repoInput, setRepoInput] = useState(""); // stores user input like 'username/repo'
 
   // File sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -196,7 +200,6 @@ const CodeWorkspace: React.FC = () => {
       toast("No code to convert.", { description: "Please upload or paste code." });
       return;
     }
-
     // Check API connectivity before attempting conversion
     if (!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) {
       toast("API not connected", { 
@@ -208,7 +211,6 @@ const CodeWorkspace: React.FC = () => {
       });
       return;
     }
-
     setIsConverting(true);
     const newConvertedFiles: Record<string, string> = {};
     let totalSecurityIssues: SecurityIssue[] = [];
@@ -320,6 +322,19 @@ const CodeWorkspace: React.FC = () => {
     return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
   };
 
+  function getGitHubTokenFromSettings(): string | null {
+  const settings = localStorage.getItem('legacyCodeModernizer_settings');
+  if (!settings) return null;
+
+  try {
+    const parsed = JSON.parse(settings);
+    return parsed.githubToken || null;
+  } catch (err) {
+    console.error("Error parsing settings from localStorage:", err);
+    return null;
+  }
+}
+
   const fetchGitHubRepo = async () => {
     if (!githubUrl.trim()) {
       toast("Please enter a GitHub URL");
@@ -334,12 +349,12 @@ const CodeWorkspace: React.FC = () => {
 
     setIsLoadingRepo(true);
     const { owner, repo } = parsed;
-
+    const token = getGitHubTokenFromSettings();
     try {
       const buildFileTree = async (path = ""): Promise<GitHubFile[]> => {
         const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
         const res = await axios.get(url, {
-        headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
+        headers: token ? { Authorization: `token ${token}` } : {},
         });
         
         const files: GitHubFile[] = [];
@@ -357,7 +372,7 @@ const CodeWorkspace: React.FC = () => {
           } else if (item.name.endsWith(".py")) {
             // Fetch content for Python files
             const fileRes = await axios.get(item.url, {
-            headers: accessToken ? { Authorization: `token ${accessToken}` } : {},
+            headers: token ? { Authorization: `token ${token}` } : {},
             });
             file.content = atob(fileRes.data.content);
           }
@@ -435,20 +450,22 @@ const CodeWorkspace: React.FC = () => {
     if (!selectedFileName) {
       setSelectedFileName(Object.keys(selectedFiles)[0]);
     }
-    setGithubModalOpen(false);
+    setGithubModalOpenPython2(false);
     toast(`Imported ${Object.keys(selectedFiles).length} file(s)`);
   };
 
   const fetchRepos = async (token: string) => {
+    const actualToken = getGitHubTokenFromSettings();
       const res = await axios.get("https://api.github.com/user/repos", {
-        headers: { Authorization: `token ${token}` },
+        headers: { Authorization: `token ${actualToken}` },
       });
       setRepos(res.data);
-    };
+  };
 
-    const handleLogin = () => {
+  const handleLogin = () => {
     window.open(`${BACKEND_URL}/github/login`, "_blank", "width=600,height=700");
-    };
+  };
+
   useEffect(() => {
       const handleMessage = (event: MessageEvent) => {
         if (event.data?.type === "github_token" && event.data?.token) {
@@ -631,6 +648,49 @@ const CodeWorkspace: React.FC = () => {
     ));
   };
 
+  const handlePushToGitHub = async () => {
+    if(getGitHubTokenFromSettings() == null){
+      setRepoLoadFailed(true);
+      toast("Please Authenticate with your personal access token");
+      return;
+    }
+    if (!repoInput.trim()) {
+      toast("Please enter a repository name.");
+      return;
+    }
+
+    const parsed = parseGitHubUrl(`https://github.com/${repoInput}`);
+    if (!parsed) {
+      toast("Invalid repository format");
+      return;
+    }
+
+    const normalizedFolder = targetPath.replace(/\/+$/, "");
+
+    try {
+      await axios.post(`${BACKEND_URL}/github/commit`, {
+       //token: accessToken,
+        repo: `${parsed.owner}/${parsed.repo}`,
+        message: commitMessage || `Add converted files to ${normalizedFolder}/`,
+        files: Object.entries(convertedFiles).map(([fileName, fileContent]) => ({
+          path: `${normalizedFolder}/${fileName}`,
+          content: fileContent
+        }))
+      });
+      toast("Successfully pushed to GitHub!");
+      setGithubModalOpenPython3(false);
+    
+    } catch (err) {
+      console.error(err);
+      toast("Failed to push to GitHub", {
+        description: "Check repository permissions or path.",
+      });
+    }
+  };
+
+
+
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -654,7 +714,6 @@ const CodeWorkspace: React.FC = () => {
               {isConverting ? <RotateCcw size={16} className="animate-spin" /> : <Play size={16} />}
               {isConverting ? "Converting..." : "Convert to Python 3"}
             </button>
-            
             {(!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) && (
               <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <div className="flex items-center gap-2 text-yellow-700 text-sm">
@@ -709,7 +768,7 @@ const CodeWorkspace: React.FC = () => {
                 <FileText size={16} /> Python 2 (Legacy)
               </h3>
               <div className="flex gap-2">
-                <Dialog open={githubModalOpen} onOpenChange={setGithubModalOpen}>
+                <Dialog open={githubModalOpenPython2} onOpenChange={setGithubModalOpenPython2}>
                   <DialogTrigger asChild>
                     <button className="bg-gray-800 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 flex items-center gap-1">
                       <Github size={12} /> GitHub
@@ -819,9 +878,81 @@ const CodeWorkspace: React.FC = () => {
               <h3 className="font-semibold text-green-800 flex items-center gap-2">
                 <FileText size={16} /> Python 3 (Converted)
               </h3>
+              <div className="flex gap-2"> 
+                <Dialog open={githubModalOpenPython3} onOpenChange={setGithubModalOpenPython3}>
+                  <DialogTrigger asChild>
+                    <button className="bg-gray-800 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 flex items-center gap-1">
+                      <Github size={12} /> GitHub
+                    </button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                      <DialogTitle>Export Converted File to GitHub</DialogTitle>
+                      <DialogDescription> Push the converted code to a repository of your choice. </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Repository (e.g. user/repo)</label>
+                        <input
+                          type="text"
+                          value={repoInput}
+                          onChange={(e) => setRepoInput(e.target.value)}
+                          placeholder="username/repo"
+                          className="w-full px-3 py-2 border rounded-md text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Target Path in Repo</label>
+                        <input
+                          type="text"
+                          value={targetPath}
+                          onChange={(e) => setTargetPath(e.target.value)}
+                          className="w-full px-3 py-2 border rounded-md text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Commit Message</label>
+                        <input
+                          type="text"
+                          value={commitMessage}
+                          onChange={(e) => setCommitMessage(e.target.value)}
+                          className="w-full px-3 py-2 border rounded-md text-sm"
+                        />
+                      </div>
+                </div>
+
+                <div className="flex justify-end gap-2 mt-6">
+                  <DialogClose asChild>
+                    
+                  </DialogClose>
+                  {repoLoadFailed && (
+                          <button
+                            onClick={() => {
+                              setRepoLoadFailed(false);
+                              navigate("/settings")
+                            }}
+                            className="ml-2 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+                          >
+                            Authenticate
+                          </button>
+                        )}
+                  <button
+                    onClick={handlePushToGitHub}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                  >
+                    Push to GitHub
+                  </button>
+                  </div>
+                </DialogContent>
+
+                </Dialog>
+              
               <button onClick={handleDownload} className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 flex items-center gap-1">
                 <Download size={12} /> Download
               </button>
+              </div>
             </div>
             <div className="flex-1 relative">
               <textarea
