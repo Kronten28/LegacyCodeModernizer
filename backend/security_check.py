@@ -7,11 +7,22 @@ import json
 import re
 import uuid
 
+# Ensure UTF-8 encoding for subprocess calls
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 
 def fetch_api_key(provider: str) -> str:
-    cmd = ["./api_manager/target/release/api_manager", "-g", provider]
+    cmd = ["./api_manager/target/release/api_manager.exe", "-g", provider]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Use utf-8 encoding and handle errors gracefully
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            encoding='utf-8', 
+            errors='replace',  # Replace invalid characters instead of failing
+            check=True
+        )
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         raise RuntimeError(
@@ -19,9 +30,11 @@ def fetch_api_key(provider: str) -> str:
         ) from e
 
     try:
+        # The stdout should now be properly decoded UTF-8
         data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}, error: {str(e)}")
+    
     if data.get("provider") == provider and data.get("status") == "success":
         key = data.get("key")
         if key and key.strip():  # Check for non-empty key
@@ -72,6 +85,7 @@ For *each issue*, include the following fields:
 - *issue_title*: A 2-4 word summary of the issue (e.g., "Unvalidated Input", "SQL Injection Risk")
 - *description*: One sentence describing the issue and why it matters
 - *flagged_code*: The exact line(s) or snippet that triggered the issue
+- *recommended_code*: The corrected/secure version of the flagged_code that should replace it
 - *suggested_fix*: A clear recommendation for modern, secure Python (v3) code
 - *compliance_category*: Must be exactly one of: "HIPAA", "ISO27001", or "General"
 
@@ -118,6 +132,7 @@ Return ONLY a valid JSON array. Do not include any markdown formatting or additi
     "issue_title": "Hardcoded Password",
     "description": "The script contains a hardcoded password, which poses a serious risk if committed or shared.",
     "flagged_code": "password = 'mysecret123'",
+    "recommended_code": "password = os.getenv('PASSWORD')",
     "suggested_fix": "Store the password in an environment variable or a secure secrets manager.",
     "compliance_category": "ISO27001"
   }
@@ -181,7 +196,8 @@ Return ONLY a valid JSON array. Do not include any markdown formatting or additi
                     "title": issue.get("issue_title", "Security Issue"),
                     "description": issue.get("description", ""),
                     "recommendation": issue.get("suggested_fix", ""),
-                    "code": issue.get("flagged_code", "")
+                    "code": issue.get("flagged_code", ""),
+                    "recommended_code": issue.get("recommended_code", "")
                 }
                 security_issues.append(security_issue)
             

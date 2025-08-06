@@ -23,6 +23,7 @@ export interface SecurityIssue {
   description: string;
   recommendation: string;
   code: string;
+  recommended_code: string;
 }
 
 // Define the API connectivity state

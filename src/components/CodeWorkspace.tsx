@@ -60,6 +60,7 @@ const CodeWorkspace: React.FC = () => {
   const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>(workspaceState.convertedFiles);
   const [selectedFileName, setSelectedFileName] = useState<string>(workspaceState.selectedFileName);
   const [isConverting, setIsConverting] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
 
   // GitHub integration state
   const [githubUrl, setGithubUrl] = useState("");
@@ -118,6 +119,10 @@ const CodeWorkspace: React.FC = () => {
       setUploadedFiles(workspaceState.uploadedFiles);
       setConvertedFiles(workspaceState.convertedFiles);
       setSelectedFileName(workspaceState.selectedFileName);
+      // Show summary if there's already converted content and explanation
+      if (Object.keys(workspaceState.convertedFiles).length > 0 && latestReport?.explanation) {
+        setShowSummary(true);
+      }
     }
   }, []);
 
@@ -212,8 +217,17 @@ const CodeWorkspace: React.FC = () => {
       return;
     }
     setIsConverting(true);
+    setShowSummary(false); // Hide summary during conversion
     const newConvertedFiles: Record<string, string> = {};
     let totalSecurityIssues: SecurityIssue[] = [];
+    const conversionsToReport: Array<{
+      success: boolean;
+      executionTime: number;
+      originalCode: string;
+      convertedCode: string;
+      explanation: string;
+      securityIssues: SecurityIssue[];
+    }> = [];
     
     for (const [fileName, fileContent] of Object.entries(uploadedFiles)) {
       const startTime = Date.now();
@@ -230,7 +244,8 @@ const CodeWorkspace: React.FC = () => {
         const securityIssues: SecurityIssue[] = res.data.security_issues || [];
         totalSecurityIssues = [...totalSecurityIssues, ...securityIssues];
         
-        addReport({
+        // Store conversion report for later
+        conversionsToReport.push({
           success: true,
           executionTime: endTime - startTime,
           originalCode: fileContent,
@@ -269,7 +284,7 @@ const CodeWorkspace: React.FC = () => {
         }
         
         newConvertedFiles[fileName] = `// Error: ${message}`;
-        addReport({
+        conversionsToReport.push({
           success: false,
           executionTime: endTime - startTime,
           originalCode: fileContent,
@@ -280,14 +295,25 @@ const CodeWorkspace: React.FC = () => {
       }
     }
     
+    // Update converted files first to ensure code appears before summary
     setConvertedFiles(newConvertedFiles);
-    setIsConverting(false);
     
-    const successCount = Object.keys(newConvertedFiles).filter(
-      key => !newConvertedFiles[key].startsWith('// Error:')
-    ).length;
-    
-    toast(`${successCount}/${Object.keys(newConvertedFiles).length} file(s) converted successfully.`);
+    // Small delay to ensure code display updates first, then add reports
+    setTimeout(() => {
+      conversionsToReport.forEach(report => addReport(report));
+      setIsConverting(false);
+      
+      // Show summary after code is displayed
+      setTimeout(() => {
+        setShowSummary(true);
+      }, 200);
+      
+      const successCount = Object.keys(newConvertedFiles).filter(
+        key => !newConvertedFiles[key].startsWith('// Error:')
+      ).length;
+      
+      toast(`${successCount}/${Object.keys(newConvertedFiles).length} file(s) converted successfully.`);
+    }, 100);
   };
 
   const handleDownload = () => {
@@ -882,7 +908,7 @@ const CodeWorkspace: React.FC = () => {
                 <Dialog open={githubModalOpenPython3} onOpenChange={setGithubModalOpenPython3}>
                   <DialogTrigger asChild>
                     <button className="bg-gray-800 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 flex items-center gap-1">
-                      <Github size={12} /> GitHub
+                      <Github size={12} /> Commit
                     </button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-[500px]">
@@ -983,7 +1009,7 @@ const CodeWorkspace: React.FC = () => {
             </h4>
           </div>
           <div className="p-6">
-            {codeChanges ? (
+            {codeChanges && showSummary ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <div className="h-1 w-1 bg-blue-500 rounded-full"></div>

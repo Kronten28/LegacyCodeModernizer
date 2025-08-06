@@ -117,21 +117,38 @@ const SecurityScanner: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-6">
                   <div>
                     <h4 className="font-medium text-gray-900 mb-2">Issue Description</h4>
-                    <p className="text-gray-700 text-sm mb-4">{issue.description}</p>
+                    <p className="text-gray-700 text-sm">{issue.description}</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                        <AlertTriangle size={16} className="text-red-500" />
+                        Flagged Code
+                      </h4>
+                      <div className="bg-gray-900 text-red-400 p-3 rounded font-mono text-sm border-l-4 border-red-500">
+                        {issue.code}
+                      </div>
+                    </div>
                     
-                    <h4 className="font-medium text-gray-900 mb-2">Flagged Code</h4>
-                    <div className="bg-gray-900 text-red-400 p-3 rounded font-mono text-sm">
-                      {issue.code}
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                        <CheckCircle size={16} className="text-green-500" />
+                        Recommended Code
+                      </h4>
+                      <div className="bg-gray-900 text-green-400 p-3 rounded font-mono text-sm border-l-4 border-green-500">
+                        {issue.recommended_code || "No specific code recommendation available"}
+                      </div>
                     </div>
                   </div>
                   
                   <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Recommendation</h4>
-                    <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-                      <p className="text-green-800 text-sm">{issue.recommendation}</p>
+                    <h4 className="font-medium text-gray-900 mb-2">General Recommendation</h4>
+                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                      <p className="text-blue-800 text-sm">{issue.recommendation}</p>
                     </div>
                   </div>
                 </div>

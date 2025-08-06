@@ -6,11 +6,22 @@ from openai import OpenAI, OpenAIError
 import tempfile
 from security_check import ai_security_check
 
+# Ensure UTF-8 encoding for subprocess calls
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 
 def fetch_api_key(provider: str) -> str:
-    cmd = ["./api_manager/target/release/api_manager", "-g", provider]
+    cmd = ["./api_manager/target/release/api_manager.exe", "-g", provider]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Use utf-8 encoding and handle errors gracefully
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            encoding='utf-8', 
+            errors='replace',  # Replace invalid characters instead of failing
+            check=True
+        )
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         raise RuntimeError(
@@ -18,9 +29,11 @@ def fetch_api_key(provider: str) -> str:
         ) from e
 
     try:
+        # The stdout should now be properly decoded UTF-8
         data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}, error: {str(e)}")
+    
     if data.get("provider") == provider and data.get("status") == "success":
         key = data.get("key")
         if key and key.strip():  # Check for non-empty key
@@ -165,6 +178,15 @@ def migrate_code_str(code_str, filename="code.py"):
             # Validate that the code is not empty
             if not code_str.strip():
                 raise ValueError("Input code is empty")
+            
+            # Handle encoding issues - ensure code_str is properly encoded
+            try:
+                # Try to encode and decode to ensure it's valid UTF-8
+                code_str.encode('utf-8').decode('utf-8')
+            except UnicodeEncodeError as e:
+                raise ValueError(f"Input contains invalid characters that cannot be encoded: {str(e)}")
+            except UnicodeDecodeError as e:
+                raise ValueError(f"Input encoding error: {str(e)}")
             
             # Ensure code ends with newline (required by lib2to3)
             if not code_str.endswith('\n'):

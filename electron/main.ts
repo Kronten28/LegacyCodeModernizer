@@ -40,8 +40,11 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 800,
     height: 600,
+    icon: path.join(__dirname, '../public/lcm_iconlinux.png'),
     webPreferences: {
-      nodeIntegration: true,
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
   if (isDev) {

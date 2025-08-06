@@ -3,10 +3,13 @@ import sys
 import subprocess
 import json
 
+# Ensure UTF-8 encoding for subprocess calls
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 def save_api_key(provider: str, api: str):
-    cmd = ["./api_manager/target/release/api_manager", "-s", api, provider]
+    cmd = ["./api_manager/target/release/api_manager.exe", "-s", api, provider]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         raise RuntimeError(
@@ -23,9 +26,9 @@ def save_api_key(provider: str, api: str):
         )
 
 def save_token(provider: str, token: str):
-    cmd = ["./api_manager/target/release/api_manager", "-s", token, provider]
+    cmd = ["./api_manager/target/release/api_manager.exe", "-s", token, provider]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         raise RuntimeError(
@@ -43,9 +46,9 @@ def save_token(provider: str, token: str):
 
 
 def delete_api_key(provider: str):
-    cmd = ["./api_manager/target/release/api_manager", "-d", provider]
+    cmd = ["./api_manager/target/release/api_manager.exe", "-d", provider]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         raise RuntimeError(
@@ -62,9 +65,9 @@ def delete_api_key(provider: str):
         )
 
 def delete_token(provider: str):
-    cmd = ["./api_manager/target/release/api_manager", "-d", provider]
+    cmd = ["./api_manager/target/release/api_manager.exe", "-d", provider]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         raise RuntimeError(
