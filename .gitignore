@@ -33,3 +33,7 @@ __pycache__/
 target/
 backend/.secret_key
 backend/.api_key_store.enc
+out/
+build/
+bin/
+api

@@ -5,46 +5,10 @@ import json
 from openai import OpenAI, OpenAIError
 import tempfile
 from security_check import ai_security_check
+from api_save import fetch_api_key
 
 # Ensure UTF-8 encoding for subprocess calls
 os.environ['PYTHONIOENCODING'] = 'utf-8'
-
-
-def fetch_api_key(provider: str) -> str:
-    cmd = ["./api_manager/target/release/api_manager.exe", "-g", provider]
-    try:
-        # Use utf-8 encoding and handle errors gracefully
-        result = subprocess.run(
-            cmd, 
-            capture_output=True, 
-            text=True, 
-            encoding='utf-8', 
-            errors='replace',  # Replace invalid characters instead of failing
-            check=True
-        )
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr or ""
-        raise RuntimeError(
-            f"Fail to run api_manager, provider={provider}, stderr: {stderr}"
-        ) from e
-
-    try:
-        # The stdout should now be properly decoded UTF-8
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"api_manager return incorrect json format: {result.stdout}, error: {str(e)}")
-    
-    if data.get("provider") == provider and data.get("status") == "success":
-        key = data.get("key")
-        if key and key.strip():  # Check for non-empty key
-            return key
-        else:
-            return ""  # Return empty string if no key found
-
-    raise RuntimeError(
-        f"Failed to fetch API key for {provider}, output: {result.stdout}"
-    )
-
 
 MODEL_NAME = "gpt-4.1"
 
