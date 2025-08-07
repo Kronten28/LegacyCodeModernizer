@@ -7,7 +7,7 @@
   "description": "Transform Python2 Code to Python3 Code",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:8080 && npm run build:electron && cross-env NODE_ENV=development electron ./dist-electron/main.cjs\"",
-    "build:electron": "tsc -p tsconfig.electron.json && node renameMain.cjs && cd ./backend/api_manager && cargo build --release",
+    "build:electron": "tsc -p tsconfig.electron.json && node renameMain.cjs && cd ./backend/api_manager",
     "start": "electron-forge start",
     "build:dev:linux": "vite build --mode development && cd ./backend/api_manager && cargo build --release && cd .. && pyinstaller api.py --onefile --add-binary ./api_manager/target/release/api_manager:. && mv ./dist/api .",
     "build:dev:windows": "vite build --mode development && cd ./backend/api_manager && cargo build --release && cd .. && pyinstaller api.py --onefile --add-binary ./api_manager/target/release/api_manager.exe:. && move ./dist/api.exe .",
