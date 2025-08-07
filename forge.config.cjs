@@ -21,8 +21,18 @@ module.exports = {
       config: {},
     },
     // {
-    //   name: '@electron-forge/maker-rpm',
-    //   config: {},
+    //   name: "@electron-forge/maker-rpm",
+    //   config: {
+    //     options: {
+    //       name: "legacy-code-modernizer",
+    //       // The summary for your package
+    //       summary: "A legacy code modernizer tool.",
+    //       // The executable file name
+    //       bin: "legacy-code-modernizer",
+    //       // A URL for your project
+    //       homepage: "https://your-project-homepage.com",
+    //     },
+    //   },
     // },
   ],
   plugins: [
