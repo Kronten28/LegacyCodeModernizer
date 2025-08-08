@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import time
 from openai import OpenAI, OpenAIError
 import tempfile
 import json
@@ -47,7 +48,13 @@ def fetch_api_key(provider: str) -> str:
     )
 
 
-MODEL_NAME = "gpt-4.1"
+MODEL_NAME = "gpt-5"
+
+def get_temperature_for_model(model_name: str) -> float:
+    """Get the appropriate temperature setting for the given model."""
+    if model_name == "gpt-5":
+        return 1.0  # GPT-5 requires temperature 1
+    return 0.0  # Other models can use temperature 0
 
 def get_openai_client():
     """Get OpenAI client instance, creating it lazily when needed."""
@@ -62,18 +69,44 @@ def get_openai_client():
 
 def extract_line_number(code: str, flagged_code: str) -> int:
     """Extract the line number where the flagged code appears."""
+    if not flagged_code or not flagged_code.strip():
+        return 1
+    
     lines = code.split('\n')
-    for i, line in enumerate(lines, 1):
-        if flagged_code.strip() in line:
-            return i
+    flagged_lines = flagged_code.strip().split('\n')
+    
+    # If it's a single line, try to find exact match first, then partial
+    if len(flagged_lines) == 1:
+        flagged_line = flagged_lines[0].strip()
+        
+        # Try exact match first
+        for i, line in enumerate(lines, 1):
+            if line.strip() == flagged_line:
+                return i
+                
+        # Try partial match if no exact match
+        for i, line in enumerate(lines, 1):
+            if flagged_line in line.strip():
+                return i
+    else:
+        # For multiline flagged code, look for the first line
+        first_flagged_line = flagged_lines[0].strip()
+        if first_flagged_line:
+            for i, line in enumerate(lines, 1):
+                if first_flagged_line in line.strip():
+                    return i
+    
     return 1  # Default to line 1 if not found
 
 
-def ai_security_check(code: str, filename: str = "code.py") -> list:
+def ai_security_check(code: str, filename: str = "code.py", model_name: str = None) -> list:
     """
     Perform AI-powered security analysis on Python code.
     Returns a list of security issues in the required format.
     """
+    if model_name is None:
+        model_name = MODEL_NAME
+    
     system_prompt = """
 You are a security auditing assistant integrated into a desktop application called *Legacy Code Modernizer*.
 Your task is to analyze Python source code and identify any *security vulnerabilities, bad practices, or compliance risks*, then classify them and suggest improvements.
@@ -148,15 +181,31 @@ Return ONLY a valid JSON array. Do not include any markdown formatting or additi
 
     try:
         client = get_openai_client()
-        resp = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Analyze this Python code for security issues:\n\n{code}"},
-            ],
-            temperature=0,
-        )
-        content = resp.choices[0].message.content
+        effective_model = model_name if model_name else MODEL_NAME
+        
+        # Import retry function from translate module
+        try:
+            from translate import openai_request_with_retry
+            content = openai_request_with_retry(
+                client=client,
+                model_name=effective_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Analyze this Python code for security issues:\n\n{code}"},
+                ]
+            )
+        except ImportError:
+            # Fallback to direct call if import fails
+            temperature = get_temperature_for_model(effective_model)
+            resp = client.chat.completions.create(
+                model=effective_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Analyze this Python code for security issues:\n\n{code}"},
+                ],
+                temperature=temperature,
+            )
+            content = resp.choices[0].message.content
         
         # Parse the JSON response
         try:

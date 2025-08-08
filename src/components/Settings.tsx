@@ -14,7 +14,7 @@ interface SettingsState {
 }
 
 const Settings: React.FC = () => {
-  const { apiConnectivity, checkApiConnectivity, saveApiKey, deleteApiKey,gitHubConnectivity, checkGitHubConnectivity, saveGitHubToken, deleteGitHubToken } = useAppContext();
+  const { apiConnectivity, checkApiConnectivity, saveApiKey, deleteApiKey,gitHubConnectivity, checkGitHubConnectivity, saveGitHubToken, deleteGitHubToken, selectedModel, availableModels, updateSelectedModel } = useAppContext();
   const [settings, setSettings] = useState<SettingsState>({
     aiModel: 'GPT-4.1',
     openaiApiKey: '',
@@ -43,15 +43,13 @@ const Settings: React.FC = () => {
   // Load settings from localStorage on component mount
   useEffect(() => {
     loadSettings();
-    // Clean up any corrupted API keys on first load
-    cleanupCorruptedKeys();
   }, []);
 
   // Clean up any masked/corrupted API keys that might be stored
+  // This is now called from loadExistingApiKey to avoid duplicate API calls
   const cleanupCorruptedKeys = async () => {
     try {
-      // Check if there are any masked values in the backend by testing connectivity
-      await checkApiConnectivity();
+      // Only cleanup if there's an encoding error detected
       if (apiConnectivity.error && apiConnectivity.error.includes('ascii')) {
         // This suggests the stored key has encoding issues, clear it
         await deleteApiKey('openai');
@@ -60,9 +58,10 @@ const Settings: React.FC = () => {
     } catch (error) {
       console.log('Error during cleanup, continuing normally:', error);
     }
-    
+  };
+
+  const cleanupCorruptedGitHubToken = async () => {
     try {
-      await checkGitHubConnectivity();
       if (gitHubConnectivity.error && gitHubConnectivity.error.includes('ascii')) {
         // This suggests the stored token has encoding issues, clear it
         await deleteGitHubToken('GitHub');
@@ -76,17 +75,26 @@ const Settings: React.FC = () => {
   // Load existing API key when user configuration or connection status changes
   useEffect(() => {
     loadExistingApiKey();
-  }, [apiConnectivity.userConfigured, apiConnectivity.isConnected, apiConnectivity.openaiConfigured, checkApiConnectivity]);
+  }, [apiConnectivity.userConfigured, apiConnectivity.isConnected, apiConnectivity.openaiConfigured]);
 
   useEffect(() => {
     loadExistingToken();
-  }, [gitHubConnectivity.userConfigured, gitHubConnectivity.isConnected, gitHubConnectivity.githubConfigured, checkGitHubConnectivity]);
+  }, [gitHubConnectivity.userConfigured, gitHubConnectivity.isConnected, gitHubConnectivity.githubConfigured]);
 
   const loadExistingApiKey = async () => {
     try {
       // Only check if user has previously configured the API
       if (apiConnectivity.userConfigured) {
-        await checkApiConnectivity();
+        // The context should already have checked connectivity on app startup
+        // We only need to check again if there's no lastChecked timestamp at all
+        // and we're not currently checking (to avoid race conditions)
+        if (!apiConnectivity.lastChecked && !apiConnectivity.isChecking) {
+          await checkApiConnectivity();
+        }
+        
+        // Clean up corrupted keys if needed
+        await cleanupCorruptedKeys();
+        
         if (apiConnectivity.isConnected && apiConnectivity.openaiConfigured) {
           // We know there's a key, but we don't show it for security reasons
           // Just indicate that there's an existing key
@@ -111,7 +119,16 @@ const Settings: React.FC = () => {
     try {
       // Only check if user has previously configured the API
       if (gitHubConnectivity.userConfigured) {
-        await checkGitHubConnectivity();
+        // The context should already have checked connectivity on app startup
+        // We only need to check again if there's no lastChecked timestamp at all
+        // and we're not currently checking (to avoid race conditions)
+        if (!gitHubConnectivity.lastChecked && !gitHubConnectivity.isChecking) {
+          await checkGitHubConnectivity();
+        }
+        
+        // Clean up corrupted tokens if needed
+        await cleanupCorruptedGitHubToken();
+        
         if (gitHubConnectivity.isConnected && gitHubConnectivity.githubConfigured) {
           // We know there's a token, but we don't show it for security reasons
           // Just indicate that there's an existing token
@@ -203,6 +220,12 @@ const Settings: React.FC = () => {
 
   const handleModelChange = (newModel: string) => {
     setSettings(prev => ({ ...prev, aiModel: newModel }));
+    // Convert display model to API model ID and update context
+    const modelId = newModel === 'GPT-4.1' ? 'gpt-4.1' :
+                   newModel === 'GPT-4o' ? 'gpt-4o' :
+                   newModel === 'GPT-3.5 Turbo' ? 'gpt-3.5-turbo' :
+                   'gpt-4.1';
+    updateSelectedModel(modelId);
   };
 
   const handleApiKeyChange = (newApiKey: string) => {
@@ -595,17 +618,19 @@ const Settings: React.FC = () => {
                   onChange={(e) => handleModelChange(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="GPT-4.1">GPT-4.1 (Recommended)</option>
-                  <option value="GPT-4o">GPT-4o (Faster)</option>
-                  <option value="GPT-3.5-turbo">GPT-3.5 Turbo (Budget)</option>
+                  {availableModels.map((model) => (
+                    <option key={model.id} value={model.name}>
+                      {model.name} {model.name === 'GPT-5' ? '(Flagship)' : model.name === 'GPT-4.1' ? '(Recommended)' : model.name === 'GPT-4o' ? '(Faster)' : '(Budget)'}
+                    </option>
+                  ))}
                 </select>
               </div>
-              <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
-                <strong>GPT-4.1</strong> provides the highest accuracy for code conversion and security scanning.
-                <br />
-                <strong>GPT-4o</strong> offers faster response times with good accuracy.
-                <br />
-                <strong>GPT-3.5 Turbo</strong> is the most cost-effective option.
+              <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg space-y-1">
+                {availableModels.map((model) => (
+                  <div key={model.id}>
+                    <strong>{model.name}</strong>: {model.description.toLowerCase()}
+                  </div>
+                ))}
               </div>
             </div>
           </div>

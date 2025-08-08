@@ -21,48 +21,13 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
   const navigate = useNavigate();
-  const { apiConnectivity, checkApiConnectivity } = useAppContext();
-  
-  // State for AI model (still need this for display)
-  const [currentModel, setCurrentModel] = useState<string>('GPT-4.1');
+  const { apiConnectivity, checkApiConnectivity, selectedModel, availableModels } = useAppContext();
 
-  // Update model from settings
-  const updateModelFromSettings = () => {
-    try {
-      const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
-      if (savedSettings) {
-        const settings = JSON.parse(savedSettings);
-        setCurrentModel(settings.aiModel || 'GPT-4.1');
-      }
-    } catch (error) {
-      console.error('Error loading settings:', error);
-    }
+  // Get current model display name
+  const getCurrentModelName = () => {
+    const model = availableModels.find(m => m.id === selectedModel);
+    return model ? model.name : 'GPT-5';
   };
-
-  // Initialize and listen for settings changes
-  useEffect(() => {
-    updateModelFromSettings();
-    
-    // Listen for settings changes
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'legacyCodeModernizer_settings') {
-        updateModelFromSettings();
-      }
-    };
-
-    // Listen for custom settings update events
-    const handleSettingsUpdate = () => {
-      updateModelFromSettings();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('settingsUpdated', handleSettingsUpdate);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('settingsUpdated', handleSettingsUpdate);
-    };
-  }, []);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -171,7 +136,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange }) => {
         
         <div className="flex items-center justify-between">
           <span>Model:</span>
-          <span className="text-slate-300 font-medium">{currentModel}</span>
+          <span className="text-slate-300 font-medium">{getCurrentModelName()}</span>
         </div>
         
         {apiConnectivity.lastChecked && (

@@ -8,6 +8,7 @@ import time
 from api_save import save_api_key, delete_api_key, save_token, delete_token
 from datetime import datetime
 import base64
+import threading
 
 load_dotenv()
 app = Flask(__name__)
@@ -78,13 +79,16 @@ def health_check():
 def get_api_status():
     """Get detailed API status including model information"""
     try:
+        # Get the current model from query parameter or use default
+        current_model = request.args.get('model', 'gpt-5')
+        
         status = {
             "connected": True,
             "timestamp": datetime.utcnow().isoformat(),
             "models": {
-                "available": ["GPT-4.1", "GPT-4o", "GPT-3.5-turbo"],
-                "current": "GPT-4.1",  # This would typically come from settings
-                "default": "GPT-4.1"
+                "available": ["gpt-5", "gpt-4.1", "gpt-4o", "gpt-3.5-turbo"],
+                "current": current_model,
+                "default": "gpt-5"
             },
             "features": {
                 "code_conversion": True,
@@ -110,22 +114,77 @@ def get_api_status():
             "timestamp": datetime.utcnow().isoformat()
         }), 500
 
+@app.route("/api/github/health", methods=["GET"])
+def get_github_status():
+    """Get GitHub connectivity status"""
+    try:
+        status = {
+            "connected": False,
+            "timestamp": datetime.utcnow().isoformat(),
+            "github_configured": False,
+            "error": None
+        }
+        
+        # Check if GitHub token is configured
+        try:
+            from translate import fetch_api_key
+            github_token = fetch_api_key("GitHub")
+            if github_token and github_token.strip():
+                status["github_configured"] = True
+                
+                # Test GitHub API connectivity with a simple request
+                headers = {
+                    "Authorization": f"token {github_token.strip()}",
+                    "Accept": "application/vnd.github+json"
+                }
+                
+                # Test with a simple user info request
+                test_response = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+                if test_response.status_code == 200:
+                    status["connected"] = True
+                    user_data = test_response.json()
+                    status["user"] = {
+                        "login": user_data.get("login", "unknown"),
+                        "name": user_data.get("name", ""),
+                        "type": user_data.get("type", "User")
+                    }
+                else:
+                    status["error"] = f"GitHub API returned status {test_response.status_code}"
+            else:
+                status["error"] = "No GitHub token configured"
+                
+        except Exception as e:
+            status["error"] = f"GitHub connectivity error: {str(e)}"
+            status["github_configured"] = False
+            
+        return jsonify(status), 200
+        
+    except Exception as e:
+        return jsonify({
+            "connected": False,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+            "github_configured": False
+        }), 500
+
 @app.route("/migrate", methods=["POST"])
 def migrate():
     code = request.json.get("code")
     filename = request.json.get("filename", "code.py")  # Optional filename
+    model = request.json.get("model", "gpt-5")  # Optional model selection
     
     if not code:
         return jsonify({"status": "error", "message": "No code given"}), 400
     
     try:
         # migrate_code_str now returns (converted_code, explanation, security_issues)
-        result = migrate_code_str(code, filename)
+        result = migrate_code_str(code, filename, model)
         return jsonify({
             "status": "success", 
             "result": result[0],  # converted code
             "explain": result[1],  # explanation
-            "security_issues": result[2]  # security issues
+            "security_issues": result[2],  # security issues
+            "model_used": model  # return which model was used
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500

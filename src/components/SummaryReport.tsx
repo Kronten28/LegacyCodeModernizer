@@ -115,11 +115,19 @@ const SummaryReport: React.FC = () => {
     );
   }
 
+  const totalFiles = reports.reduce((sum, report) => sum + (report.filesCount || 1), 0);
+  const successfulConversions = reports.reduce((sum, report) => 
+    sum + (report.success ? (report.filesCount || 1) : 0), 0
+  );
+  const failedConversions = reports.reduce((sum, report) => 
+    sum + (report.success ? 0 : (report.filesCount || 1)), 0
+  );
+
   const reportData = {
     timestamp: latestReport.timestamp.toLocaleString(),
-    totalFiles: reports.length,
-    successfulConversions: reports.filter(r => r.success).length,
-    failedConversions: reports.filter(r => !r.success).length,
+    totalFiles: totalFiles,
+    successfulConversions: successfulConversions,
+    failedConversions: failedConversions,
     executionTime: `${(latestReport.executionTime / 1000).toFixed(2)} seconds`,
     avgExecutionTime: `${(reports.reduce((acc, r) => acc + r.executionTime, 0) / reports.length / 1000).toFixed(2)} seconds`,
     securityIssues: {

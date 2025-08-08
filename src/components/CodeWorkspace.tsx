@@ -53,14 +53,14 @@ const CodeWorkspace: React.FC = () => {
   const githubDefaultFile = location.state?.defaultFile || "";
 
   // Get context
-  const { addReport, latestReport, workspaceState, updateWorkspaceState, apiConnectivity } = useAppContext();
+  const { addReport, latestReport, workspaceState, updateWorkspaceState, apiConnectivity, selectedModel, availableModels } = useAppContext();
 
   // Initialize state from context or defaults
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, string>>(workspaceState.uploadedFiles);
   const [convertedFiles, setConvertedFiles] = useState<Record<string, string>>(workspaceState.convertedFiles);
   const [selectedFileName, setSelectedFileName] = useState<string>(workspaceState.selectedFileName);
-  const [isConverting, setIsConverting] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
+  const [isConverting, setIsConverting] = useState(workspaceState.isConverting);
+  const [showSummary, setShowSummary] = useState(workspaceState.showSummary);
 
   // GitHub integration state
   const [githubUrl, setGithubUrl] = useState("");
@@ -74,6 +74,7 @@ const CodeWorkspace: React.FC = () => {
   const [commitMessage, setCommitMessage] = useState("");
   const [targetPath, setTargetPath] = useState(`converted/${selectedFileName.replace(/\.py$/, "_converted.py")}`);
   const [repoInput, setRepoInput] = useState(""); // stores user input like 'username/repo'
+  const [githubAuthenticated, setGithubAuthenticated] = useState<boolean | null>(null); // null = not checked yet
 
   // File sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -82,11 +83,21 @@ const CodeWorkspace: React.FC = () => {
   const python3Code = selectedFileName && convertedFiles[selectedFileName]
     ? convertedFiles[selectedFileName]
     : "Converted code will appear here...";
-  const codeChanges = latestReport?.explanation ?? "";
+  
+  // Get file-specific explanation from workspace state
+  const codeChanges = selectedFileName && workspaceState.fileExplanations?.[selectedFileName]
+    ? workspaceState.fileExplanations[selectedFileName]
+    : (latestReport?.explanation ?? "");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const leftPanelRef = useRef<HTMLTextAreaElement | null>(null);
   const rightPanelRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Get current model display name
+  const getCurrentModelName = () => {
+    const model = availableModels.find(m => m.id === selectedModel);
+    return model ? model.name : 'GPT-5';
+  };
 
   // Update context whenever state changes
   useEffect(() => {
@@ -94,8 +105,10 @@ const CodeWorkspace: React.FC = () => {
       uploadedFiles,
       convertedFiles,
       selectedFileName,
+      isConverting,
+      showSummary,
     });
-  }, [uploadedFiles, convertedFiles, selectedFileName]);
+  }, [uploadedFiles, convertedFiles, selectedFileName, isConverting, showSummary]);
 
   // Handle initial state from navigation or persisted state
   useEffect(() => {
@@ -119,6 +132,9 @@ const CodeWorkspace: React.FC = () => {
       setUploadedFiles(workspaceState.uploadedFiles);
       setConvertedFiles(workspaceState.convertedFiles);
       setSelectedFileName(workspaceState.selectedFileName);
+      setIsConverting(workspaceState.isConverting);
+      setShowSummary(workspaceState.showSummary);
+      
       // Show summary if there's already converted content and explanation
       if (Object.keys(workspaceState.convertedFiles).length > 0 && latestReport?.explanation) {
         setShowSummary(true);
@@ -126,18 +142,58 @@ const CodeWorkspace: React.FC = () => {
     }
   }, []);
 
+  // Listen for changes in workspace state from context to keep in sync
+  useEffect(() => {
+    if (workspaceState.isConverting !== isConverting) {
+      setIsConverting(workspaceState.isConverting);
+    }
+    if (workspaceState.showSummary !== showSummary) {
+      setShowSummary(workspaceState.showSummary);
+    }
+    // Ensure converted files are synced when workspace state changes
+    if (workspaceState.convertedFiles && Object.keys(workspaceState.convertedFiles).length > 0) {
+      setConvertedFiles(workspaceState.convertedFiles);
+    }
+    // Ensure uploaded files are synced when workspace state changes
+    if (workspaceState.uploadedFiles && Object.keys(workspaceState.uploadedFiles).length > 0) {
+      setUploadedFiles(workspaceState.uploadedFiles);
+    }
+    // Ensure selected file name is synced
+    if (workspaceState.selectedFileName && workspaceState.selectedFileName !== selectedFileName) {
+      setSelectedFileName(workspaceState.selectedFileName);
+    }
+  }, [workspaceState.isConverting, workspaceState.showSummary, workspaceState.convertedFiles, workspaceState.uploadedFiles, workspaceState.selectedFileName]);
+
   const handlePython2CodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newCode = e.target.value;
     
     if (selectedFileName) {
-      setUploadedFiles(prev => ({
-        ...prev,
-        [selectedFileName]: newCode,
-      }));
+      setUploadedFiles(prev => {
+        const updated = { ...prev };
+        
+        // If the code is empty and this is a generated file (like new_file.py), remove it
+        if (!newCode.trim() && selectedFileName === "new_file.py") {
+          delete updated[selectedFileName];
+          // Clear the selected file name if we're removing the only file
+          const remainingFiles = Object.keys(updated);
+          if (remainingFiles.length === 0) {
+            setSelectedFileName("");
+          } else {
+            setSelectedFileName(remainingFiles[0]);
+          }
+        } else {
+          updated[selectedFileName] = newCode;
+        }
+        
+        return updated;
+      });
     } else {
-      const newFileName = "new_file.py";
-      setUploadedFiles({ [newFileName]: newCode });
-      setSelectedFileName(newFileName);
+      // Only create a new file if the user actually typed something
+      if (newCode.trim()) {
+        const newFileName = "new_file.py";
+        setUploadedFiles({ [newFileName]: newCode });
+        setSelectedFileName(newFileName);
+      }
     }
   };
 
@@ -227,14 +283,30 @@ const CodeWorkspace: React.FC = () => {
       convertedCode: string;
       explanation: string;
       securityIssues: SecurityIssue[];
+      fileName: string;
     }> = [];
     
+    const totalFiles = Object.keys(uploadedFiles).length;
+    let processedFiles = 0;
+    
     for (const [fileName, fileContent] of Object.entries(uploadedFiles)) {
+      processedFiles++;
+      
+      // Update toast progress for multi-file conversions
+      if (totalFiles > 1) {
+        toast(`Converting file ${processedFiles}/${totalFiles}`, {
+          description: `Processing ${fileName}...`,
+        });
+      }
+      
       const startTime = Date.now();
+      const modelToUse = selectedModel || 'gpt-5';
+      
       try {
         const res = await axios.post(`${BACKEND_URL}/migrate`, { 
           code: fileContent,
-          filename: fileName 
+          filename: fileName,
+          model: modelToUse
         });
         const endTime = Date.now();
         
@@ -244,7 +316,7 @@ const CodeWorkspace: React.FC = () => {
         const securityIssues: SecurityIssue[] = res.data.security_issues || [];
         totalSecurityIssues = [...totalSecurityIssues, ...securityIssues];
         
-        // Store conversion report for later
+        // Store conversion report for later (with filename for mapping)
         conversionsToReport.push({
           success: true,
           executionTime: endTime - startTime,
@@ -252,7 +324,13 @@ const CodeWorkspace: React.FC = () => {
           convertedCode: res.data.result,
           explanation: res.data.explain || "",
           securityIssues: securityIssues,
+          fileName: fileName // Add filename to track which file this report belongs to
         });
+        
+        // Add a small delay between file conversions to prevent rate limiting
+        if (processedFiles < totalFiles) {
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between files
+        }
         
         // If there are security issues, show a notification
         if (securityIssues.length > 0) {
@@ -272,41 +350,121 @@ const CodeWorkspace: React.FC = () => {
       } catch (e) {
         const endTime = Date.now();
         let message = e instanceof Error ? e.message : String(e);
+        let isRateLimitError = false;
         
         // Extract more meaningful error message from axios errors
         if (e && typeof e === 'object' && 'response' in e) {
           const axiosError = e as any;
           if (axiosError.response?.data?.message) {
             message = axiosError.response.data.message;
+            
+            // Check for rate limiting error
+            if (message.toLowerCase().includes('rate limit') || message.includes('429') || 
+                message.toLowerCase().includes('please try again')) {
+              isRateLimitError = true;
+              
+              // Show specific rate limit toast
+              toast("Rate limit reached", {
+                description: "OpenAI API rate limit exceeded. Please wait before converting more files.",
+                action: {
+                  label: "Learn More",
+                  onClick: () => window.open("https://platform.openai.com/docs/guides/rate-limits", "_blank")
+                }
+              });
+            }
           } else if (axiosError.response?.status === 500) {
             message = `Server error (500): ${message}. Please check if your Python code has syntax errors.`;
+          } else if (axiosError.response?.status === 429) {
+            isRateLimitError = true;
+            message = "Rate limit exceeded. The AI service is temporarily unavailable due to high usage.";
+            
+            toast("Rate limit reached", {
+              description: "Too many requests. Please wait a moment before trying again.",
+              action: {
+                label: "Retry Later",
+                onClick: () => {
+                  setTimeout(() => {
+                    handleModernize();
+                  }, 30000); // Retry after 30 seconds
+                }
+              }
+            });
           }
         }
         
-        newConvertedFiles[fileName] = `// Error: ${message}`;
+        const errorPrefix = isRateLimitError ? "// Rate limit reached - try again later" : "// Error";
+        newConvertedFiles[fileName] = `${errorPrefix}: ${message}`;
         conversionsToReport.push({
           success: false,
           executionTime: endTime - startTime,
           originalCode: fileContent,
-          convertedCode: `// Error: ${message}`,
+          convertedCode: `${errorPrefix}: ${message}`,
           explanation: `Failed to convert ${fileName}: ${message}`,
           securityIssues: [],
+          fileName: fileName // Add filename to track which file this report belongs to
+        });
+        
+        // Log detailed error for debugging
+        console.error(`Conversion error for ${fileName}:`, {
+          error: e,
+          message,
+          isRateLimitError,
+          status: e && typeof e === 'object' && 'response' in e ? (e as any).response?.status : 'unknown'
         });
       }
     }
     
-    // Update converted files first to ensure code appears before summary
+    // Update converted files and context state immediately
     setConvertedFiles(newConvertedFiles);
+    setIsConverting(false);
     
-    // Small delay to ensure code display updates first, then add reports
+    // Update workspace state immediately to ensure converted code appears
+    updateWorkspaceState({
+      convertedFiles: newConvertedFiles,
+      isConverting: false,
+      showSummary: false // Will be set to true after reports are added
+    });
+    
+    // Small delay to add reports and show summary
     setTimeout(() => {
-      conversionsToReport.forEach(report => addReport(report));
-      setIsConverting(false);
+      // Store individual reports in workspace state for file-specific access
+      // Create fileReportsMap using the fileName stored in each report
+      const fileReportsMap: Record<string, string> = {};
+      conversionsToReport.forEach((report) => {
+        if (report.fileName && report.explanation) {
+          fileReportsMap[report.fileName] = report.explanation;
+        }
+      });
       
-      // Show summary after code is displayed
-      setTimeout(() => {
-        setShowSummary(true);
-      }, 200);
+      // Update workspace with file-specific explanations
+      updateWorkspaceState({
+        convertedFiles: newConvertedFiles,
+        isConverting: false,
+        showSummary: true,
+        fileExplanations: fileReportsMap // Store file-specific explanations
+      });
+      
+      // For multiple files, add only a single consolidated report with actual file count
+      if (conversionsToReport.length > 1) {
+        const consolidatedReport = {
+          success: conversionsToReport.some(r => r.success),
+          executionTime: conversionsToReport.reduce((sum, r) => sum + r.executionTime, 0),
+          originalCode: `${conversionsToReport.length} files converted`,
+          convertedCode: `${conversionsToReport.length} files converted`,
+          explanation: conversionsToReport.filter(r => r.explanation).map(r => r.explanation).join('\n\n---\n\n'),
+          securityIssues: totalSecurityIssues, // Use the accumulated security issues
+          filesCount: conversionsToReport.length // Track actual number of files
+        };
+        addReport(consolidatedReport);
+      } else {
+        // For single file, add the individual report with filesCount = 1
+        conversionsToReport.forEach(report => {
+          const { fileName, ...reportWithoutFileName } = report;
+          addReport({...reportWithoutFileName, filesCount: 1});
+        });
+      }
+      
+      setShowSummary(true);
       
       const successCount = Object.keys(newConvertedFiles).filter(
         key => !newConvertedFiles[key].startsWith('// Error:')
@@ -337,6 +495,7 @@ const CodeWorkspace: React.FC = () => {
       selectedFileName: "",
       githubFiles: null,
       githubDefaultFile: "",
+      fileExplanations: {},
     });
     toast("Workspace cleared");
   };
@@ -704,10 +863,56 @@ const CodeWorkspace: React.FC = () => {
     ));
   };
 
-  const handlePushToGitHub = async () => {
-    if(getGitHubTokenFromSettings() == null){
+  // Check GitHub authentication status
+  const checkGitHubAuth = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/github/health`);
+      const isAuthenticated = response.data.connected && response.data.github_configured;
+      setGithubAuthenticated(isAuthenticated);
+      setRepoLoadFailed(!isAuthenticated);
+      return isAuthenticated;
+    } catch (error) {
+      console.error("GitHub connectivity check failed:", error);
+      setGithubAuthenticated(false);
       setRepoLoadFailed(true);
-      toast("Please Authenticate with your personal access token");
+      return false;
+    }
+  };
+
+  // Check authentication on component mount
+  useEffect(() => {
+    if (githubAuthenticated === null) {
+      checkGitHubAuth();
+    }
+  }, []);
+
+  // Re-check GitHub authentication when returning to the page/tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && githubAuthenticated === false) {
+        // Re-check authentication when user returns to the tab
+        // This helps if they configured GitHub token in another tab/window
+        checkGitHubAuth();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [githubAuthenticated]);
+
+  const handlePushToGitHub = async () => {
+    // Check GitHub authentication
+    const isAuth = await checkGitHubAuth();
+    if (!isAuth) {
+      toast("GitHub authentication required", {
+        description: "Please configure your GitHub Personal Access Token in Settings.",
+        action: {
+          label: "Go to Settings",
+          onClick: () => navigate("/settings")
+        }
+      });
       return;
     }
     if (!repoInput.trim()) {
@@ -724,8 +929,9 @@ const CodeWorkspace: React.FC = () => {
     const normalizedFolder = targetPath.replace(/\/+$/, "");
 
     try {
-      await axios.post(`${BACKEND_URL}/github/commit`, {
-       //token: accessToken,
+      console.log("Attempting GitHub commit with repo:", `${parsed.owner}/${parsed.repo}`);
+      
+      const response = await axios.post(`${BACKEND_URL}/github/commit`, {
         repo: `${parsed.owner}/${parsed.repo}`,
         message: commitMessage || `Add converted files to ${normalizedFolder}/`,
         files: Object.entries(convertedFiles).map(([fileName, fileContent]) => ({
@@ -733,14 +939,49 @@ const CodeWorkspace: React.FC = () => {
           content: fileContent
         }))
       });
+      
+      console.log("GitHub commit response:", response.data);
       toast("Successfully pushed to GitHub!");
       setGithubModalOpenPython3(false);
     
-    } catch (err) {
-      console.error(err);
-      toast("Failed to push to GitHub", {
-        description: "Check repository permissions or path.",
-      });
+    } catch (err: any) {
+      console.error("GitHub commit error:", err);
+      
+      // More specific error handling
+      if (err.response) {
+        const status = err.response.status;
+        const message = err.response.data?.error || err.response.data?.message || "Unknown error";
+        
+        if (status === 401) {
+          toast("Authentication failed", {
+            description: "Please update your GitHub Personal Access Token in Settings.",
+            action: {
+              label: "Go to Settings",
+              onClick: () => navigate("/settings")
+            }
+          });
+        } else if (status === 403) {
+          toast("Access denied", {
+            description: "Check if your token has the required permissions for this repository.",
+          });
+        } else if (status === 404) {
+          toast("Repository not found", {
+            description: "Please check the repository name and your access permissions.",
+          });
+        } else {
+          toast("Failed to push to GitHub", {
+            description: `Error ${status}: ${message}`,
+          });
+        }
+      } else if (err.request) {
+        toast("Network error", {
+          description: "Unable to connect to GitHub. Please check your internet connection.",
+        });
+      } else {
+        toast("Failed to push to GitHub", {
+          description: err.message || "Unknown error occurred.",
+        });
+      }
     }
   };
 
@@ -751,7 +992,12 @@ const CodeWorkspace: React.FC = () => {
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-3xl font-bold text-gray-900">Code Workspace</h2>
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900">Code Workspace</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Using {getCurrentModelName()} for code conversion
+            </p>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={handleClearWorkspace}
@@ -768,7 +1014,11 @@ const CodeWorkspace: React.FC = () => {
               title={!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured ? "API not connected. Please configure your OpenAI API key in Settings." : ""}
             >
               {isConverting ? <RotateCcw size={16} className="animate-spin" /> : <Play size={16} />}
-              {isConverting ? "Converting..." : "Convert to Python 3"}
+              {isConverting ? (
+                Object.keys(uploadedFiles).length > 1 
+                  ? "Converting files..." 
+                  : "Converting..."
+              ) : "Convert to Python 3"}
             </button>
             {(!apiConnectivity.isConnected || !apiConnectivity.openaiConfigured) && (
               <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -866,8 +1116,9 @@ const CodeWorkspace: React.FC = () => {
                         {repoLoadFailed && (
                           <button
                             onClick={() => {
-                              handleLogin()
                               setRepoLoadFailed(false);
+                              setGithubAuthenticated(null); // Reset auth status to trigger re-check
+                              navigate("/settings")
                             }}
                             className="ml-2 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
                           >
@@ -987,6 +1238,7 @@ const CodeWorkspace: React.FC = () => {
                           <button
                             onClick={() => {
                               setRepoLoadFailed(false);
+                              setGithubAuthenticated(null); // Reset auth status to trigger re-check
                               navigate("/settings")
                             }}
                             className="ml-2 px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"

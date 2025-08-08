@@ -10,6 +10,7 @@ export interface Report {
   convertedCode: string;
   explanation: string;
   securityIssues: SecurityIssue[];
+  filesCount?: number; // Track actual number of files converted (for consolidated reports)
 }
 
 // Define the shape of a security issue
@@ -52,6 +53,16 @@ export interface WorkspaceState {
   selectedFileName: string;
   githubFiles: Record<string, string> | null;
   githubDefaultFile: string;
+  isConverting: boolean;
+  showSummary: boolean;
+  fileExplanations?: Record<string, string>; // Store file-specific explanations
+}
+
+// Define available AI models
+export interface AIModel {
+  id: string;
+  name: string;
+  description: string;
 }
 
 // Define the shape of the context state
@@ -75,6 +86,11 @@ interface AppContextType {
   workspaceState: WorkspaceState;
   updateWorkspaceState: (updates: Partial<WorkspaceState>) => void;
   clearWorkspaceState: () => void;
+
+  // AI model selection
+  selectedModel: string;
+  availableModels: AIModel[];
+  updateSelectedModel: (modelId: string) => void;
 }
 
 // Create the context
@@ -107,7 +123,34 @@ const initialWorkspaceState: WorkspaceState = {
   selectedFileName: '',
   githubFiles: null,
   githubDefaultFile: '',
+  isConverting: false,
+  showSummary: false,
+  fileExplanations: {},
 };
+
+// Available AI models
+const availableModels: AIModel[] = [
+  {
+    id: 'gpt-5',
+    name: 'GPT-5',
+    description: 'Latest and most advanced model with superior reasoning (New!)'
+  },
+  {
+    id: 'gpt-4.1',
+    name: 'GPT-4.1',
+    description: 'Highly accurate for code conversion and security scanning'
+  },
+  {
+    id: 'gpt-4o',
+    name: 'GPT-4o', 
+    description: 'Faster response times with good accuracy'
+  },
+  {
+    id: 'gpt-3.5-turbo',
+    name: 'GPT-3.5 Turbo',
+    description: 'Most cost-effective option'
+  }
+];
 
 // Create the provider component
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -115,7 +158,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [apiConnectivity, setApiConnectivity] = useState<ApiConnectivity>(() => {
     // Load userConfigured state from localStorage on initialization
     try {
-      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_openaiConfigured');
       return {
         ...initialApiConnectivity,
         userConfigured: savedUserConfigured === 'true'
@@ -128,7 +171,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [gitHubConnectivity, setgitHubConnectivity] = useState<GitConnectivity>(() => {
     // Load userConfigured state from localStorage on initialization
     try {
-      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_githubConfigured');
       return {
         ...initialGitHubConnectivity,
         userConfigured: savedUserConfigured === 'true'
@@ -138,6 +181,40 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   });
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(initialWorkspaceState);
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    // Load selected model from localStorage on initialization
+    try {
+      const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        const modelId = settings.aiModel === 'GPT-5' ? 'gpt-5' :
+                       settings.aiModel === 'GPT-4.1' ? 'gpt-4.1' : 
+                       settings.aiModel === 'GPT-4o' ? 'gpt-4o' :
+                       settings.aiModel === 'GPT-3.5 Turbo' ? 'gpt-3.5-turbo' :
+                       'gpt-5';
+        
+        // Migration: If user had no explicit model selection, default to GPT-5
+        if (!settings.aiModel) {
+          settings.aiModel = 'GPT-5';
+          localStorage.setItem('legacyCodeModernizer_settings', JSON.stringify(settings));
+          return 'gpt-5';
+        }
+        
+        return modelId;
+      } else {
+        // No saved settings at all, initialize with GPT-5
+        const defaultSettings = { aiModel: 'GPT-5' };
+        localStorage.setItem('legacyCodeModernizer_settings', JSON.stringify(defaultSettings));
+        return 'gpt-5';
+      }
+    } catch (error) {
+      console.error('Error loading model from settings:', error);
+      // On error, also initialize with GPT-5
+      const defaultSettings = { aiModel: 'GPT-5' };
+      localStorage.setItem('legacyCodeModernizer_settings', JSON.stringify(defaultSettings));
+    }
+    return 'gpt-5'; // Default to latest model
+  });
 
   const addReport = (reportData: Omit<Report, 'id' | 'timestamp'>) => {
     const newReport: Report = {
@@ -188,23 +265,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setgitHubConnectivity(prev => ({ ...prev, isChecking: true, error: null }));
     
     try {
-      const response = await fetch('http://localhost:5000/api/health');
+      const response = await fetch('http://localhost:5000/api/github/health');
       const data = await response.json();
       
       if (response.ok) {
-        
         setgitHubConnectivity(prev => ({
           ...prev,
-          isConnected: true,
+          isConnected: data.connected || false,
           isChecking: false,
           lastChecked: new Date(),
-          error: null,
-          githubConfigured: data.openai_configured || false,
+          error: data.error || null,
+          githubConfigured: data.github_configured || false,
           // Keep userConfigured as is, don't modify it based on backend state
           userConfigured: prev.userConfigured,
         }));
       } else {
-        throw new Error(data.error || 'Health check failed');
+        throw new Error(data.error || 'GitHub health check failed');
       }
     } catch (error) {
       setgitHubConnectivity(prev => ({
@@ -236,7 +312,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       
       if (response.ok && data.status === 'success') {
         // Mark as user configured and save to localStorage
-        localStorage.setItem('legacyCodeModernizer_userConfigured', 'true');
+        localStorage.setItem('legacyCodeModernizer_openaiConfigured', 'true');
         
         // Update state with userConfigured flag and then check connectivity
         setApiConnectivity(prev => ({
@@ -278,7 +354,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       
       if (response.ok && data.status === 'success') {
         // Mark as user configured and save to localStorage
-        localStorage.setItem('legacyCodeModernizer_userConfigured', 'true');
+        localStorage.setItem('legacyCodeModernizer_githubConfigured', 'true');
         
         // Update state with userConfigured flag and then check connectivity
         setgitHubConnectivity(prev => ({
@@ -319,7 +395,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       
       if (response.ok && data.status === 'success') {
         // After deleting API key, update connectivity state and clear localStorage
-        localStorage.setItem('legacyCodeModernizer_userConfigured', 'false');
+        localStorage.setItem('legacyCodeModernizer_openaiConfigured', 'false');
         setApiConnectivity(prev => ({
           ...prev,
           isConnected: false,
@@ -356,8 +432,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await response.json();
       
       if (response.ok && data.status === 'success') {
-        // After deleting API key, update connectivity state and clear localStorage
-        localStorage.setItem('legacyCodeModernizer_userConfigured', 'false');
+        // After deleting GitHub token, update connectivity state and clear localStorage
+        localStorage.setItem('legacyCodeModernizer_githubConfigured', 'false');
         setgitHubConnectivity(prev => ({
           ...prev,
           isConnected: false,
@@ -386,13 +462,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setWorkspaceState(initialWorkspaceState);
   };
 
+  const updateSelectedModel = (modelId: string) => {
+    setSelectedModel(modelId);
+    // Also update localStorage settings to keep them in sync
+    try {
+      const savedSettings = localStorage.getItem('legacyCodeModernizer_settings');
+      let settings = savedSettings ? JSON.parse(savedSettings) : {};
+      
+      // Convert modelId back to display format for localStorage
+      const displayModel = modelId === 'gpt-5' ? 'GPT-5' :
+                          modelId === 'gpt-4.1' ? 'GPT-4.1' :
+                          modelId === 'gpt-4o' ? 'GPT-4o' :
+                          modelId === 'gpt-3.5-turbo' ? 'GPT-3.5 Turbo' :
+                          'GPT-5';
+      
+      settings.aiModel = displayModel;
+      localStorage.setItem('legacyCodeModernizer_settings', JSON.stringify(settings));
+      
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: settings }));
+    } catch (error) {
+      console.error('Error updating model in settings:', error);
+    }
+  };
+
   const latestReport = reports.length > 0 ? reports[0] : null;
 
   // Check API connectivity on app startup if user has configured it
   useEffect(() => {
     const initializeApiStatus = async () => {
       // Get the initial userConfigured state from localStorage
-      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_openaiConfigured');
       if (savedUserConfigured === 'true') {
         await checkApiConnectivity();
       }
@@ -404,7 +504,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     const initializeGitStatus = async () => {
       // Get the initial userConfigured state from localStorage
-      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_userConfigured');
+      const savedUserConfigured = localStorage.getItem('legacyCodeModernizer_githubConfigured');
       if (savedUserConfigured === 'true') {
         await checkGitHubConnectivity();
       }
@@ -412,6 +512,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     
     initializeGitStatus();
   }, [checkGitHubConnectivity]); // Only run once on mount
+
+  // Listen for settings changes to update selected model
+  useEffect(() => {
+    const handleSettingsUpdate = (event: CustomEvent) => {
+      const settings = event.detail;
+      if (settings.aiModel) {
+        const modelId = settings.aiModel === 'GPT-5' ? 'gpt-5' :
+                       settings.aiModel === 'GPT-4.1' ? 'gpt-4.1' : 
+                       settings.aiModel === 'GPT-4o' ? 'gpt-4o' :
+                       settings.aiModel === 'GPT-3.5 Turbo' ? 'gpt-3.5-turbo' :
+                       'gpt-5';
+        setSelectedModel(modelId);
+      }
+    };
+
+    window.addEventListener('settingsUpdated', handleSettingsUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('settingsUpdated', handleSettingsUpdate as EventListener);
+    };
+  }, []);
 
   return (
     <AppContext.Provider value={{ 
@@ -428,7 +549,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       deleteGitHubToken,
       workspaceState,
       updateWorkspaceState,
-      clearWorkspaceState
+      clearWorkspaceState,
+      selectedModel,
+      availableModels,
+      updateSelectedModel
     }}>
       {children}
     </AppContext.Provider>

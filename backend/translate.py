@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import json
+import time
 from openai import OpenAI, OpenAIError
 import tempfile
 from security_check import ai_security_check
@@ -46,7 +47,13 @@ def fetch_api_key(provider: str) -> str:
     )
 
 
-MODEL_NAME = "gpt-4.1"
+MODEL_NAME = "gpt-5"
+
+def get_temperature_for_model(model_name: str) -> float:
+    """Get the appropriate temperature setting for the given model."""
+    if model_name == "gpt-5":
+        return 1.0  # GPT-5 requires temperature 1
+    return 0.0  # Other models can use temperature 0
 
 def get_openai_client():
     """Get OpenAI client instance, creating it lazily when needed."""
@@ -57,6 +64,52 @@ def get_openai_client():
         return OpenAI(api_key=api_key)
     except Exception as e:
         raise RuntimeError(f"Failed to initialize OpenAI client: {str(e)}")
+
+
+def openai_request_with_retry(client, model_name, messages, temperature=None, max_retries=3):
+    """
+    Make OpenAI API request with retry logic for rate limiting.
+    """
+    # Use model-appropriate temperature if not specified
+    if temperature is None:
+        temperature = get_temperature_for_model(model_name)
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+        except OpenAIError as e:
+            error_str = str(e)
+            
+            # Check if it's a rate limit error
+            if "rate_limit" in error_str.lower() or "429" in error_str:
+                if attempt < max_retries - 1:
+                    # Extract wait time from error message or use exponential backoff
+                    wait_time = 20  # Default from the error message
+                    if "Please try again in" in error_str:
+                        try:
+                            # Extract wait time from error message
+                            import re
+                            match = re.search(r'try again in (\d+)s', error_str)
+                            if match:
+                                wait_time = int(match.group(1))
+                        except:
+                            pass
+                    
+                    print(f"Rate limit hit, waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise RuntimeError(f"Rate limit exceeded after {max_retries} attempts: {error_str}")
+            else:
+                # Non-rate-limit error, don't retry
+                raise RuntimeError(f"OpenAI request failed: {error_str}")
+    
+    raise RuntimeError("Max retries exceeded")
 
 
 def read_code(path):
@@ -70,33 +123,101 @@ def write_tmp(path, content):
         f.write(content)
 
 
-def ai_migrate(code):
+def clean_ai_response(response: str) -> str:
+    """
+    Clean AI response to remove any markdown formatting that might have slipped through.
+    This ensures we get only raw Python code.
+    """
+    if not response:
+        return response
+    
+    # Remove markdown code blocks (```python, ```, etc.)
+    import re
+    
+    # Pattern to match code blocks: ```python\n...code...\n``` or ```\n...code...\n```
+    code_block_pattern = r'```(?:python)?\s*\n?(.*?)\n?```'
+    
+    # Check if the response is wrapped in code blocks
+    match = re.search(code_block_pattern, response, re.DOTALL)
+    if match:
+        # Extract just the code content
+        cleaned = match.group(1).strip()
+    else:
+        # If no code blocks found, just clean up any stray backticks
+        cleaned = response.strip()
+        # Remove any leading/trailing triple backticks
+        cleaned = re.sub(r'^```(?:python)?\s*\n?', '', cleaned)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+    
+    # Remove any explanatory text that might appear before the code
+    # Look for patterns like "Here's the converted code:" or similar
+    lines = cleaned.split('\n')
+    start_idx = 0
+    
+    # Skip lines that look like explanatory text until we find actual Python code
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # If line starts with typical Python keywords/patterns, we found the start
+        if (stripped.startswith(('import ', 'from ', 'def ', 'class ', 'if ', 'for ', 'while ', 
+                                'try:', 'with ', '#', 'print(', 'return ')) or
+            '=' in stripped or stripped.endswith(':')):
+            start_idx = i
+            break
+        # Skip common explanatory phrases
+        if any(phrase in stripped.lower() for phrase in [
+            'here', 'convert', 'moderniz', 'python', 'code', 'result', 'output'
+        ]):
+            continue
+        else:
+            # This looks like actual code, start from here
+            start_idx = i
+            break
+    
+    # Rejoin from the detected start point
+    cleaned = '\n'.join(lines[start_idx:]).strip()
+    
+    return cleaned
+
+
+def ai_migrate(code, model_name=None):
+    if model_name is None:
+        model_name = MODEL_NAME
+    
+        
     system_prompt = (
-        "You modernize Python 2 code into idiomatic Python 3 with type hints."
+        "You modernize Python 2 code into idiomatic Python 3 with type hints. "
+        "CRITICAL: Your response must ONLY contain raw Python code. "
+        "DO NOT include markdown code blocks, backticks, or any formatting. "
+        "DO NOT include explanations, comments, or text before or after the code."
     )
     user_prompt = (
         "Below is Python 3 code translated from Python 2 using 2to3. "
         "Label all variable types explicitly and add type annotations to all functions and variables. "
         "Remove unnecessary comments, whitespace and unused imports. "
-        "Improve the code to make it idiomatic and robust in Python 3. "
-        "Respond ONLY with the raw Python code, without any markdown formatting or triple backticks.\n\n"
+        "Improve the code to make it idiomatic and robust in Python 3.\n\n"
+        "IMPORTANT: Respond with ONLY the raw Python code. "
+        "DO NOT wrap your response in ```python or ``` or any other markdown formatting. "
+        "DO NOT add any explanatory text before or after the code.\n\n"
         f"{code}"
     )
     try:
         client = get_openai_client()
-        resp = (
-            client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0,
-            )
-            .choices[0]
-            .message.content
+        raw_response = openai_request_with_retry(
+            client=client,
+            model_name=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
         )
-    except OpenAIError as e:
+        # Clean the response to remove any markdown formatting
+        resp = clean_ai_response(raw_response)
+        
+        # Add a small delay before the next API call to prevent rate limiting
+        time.sleep(1)
+    except Exception as e:
         raise RuntimeError(f"OpenAI request failed: {e}") from e
     compare_prompt = (
         "Here are two versions of code. The first is Python 2 and the second is the modernized Python 3 version. "
@@ -104,19 +225,29 @@ def ai_migrate(code):
         f"Python2 Code:\n{code}\nPython3 Code:\n{resp}"
     )
     try:
-        compare = (
-            client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": compare_prompt},
-                ],
-                temperature=0.2,
-            )
-            .choices[0]
-            .message.content
+        # Use slightly higher temperature for comparison if model allows it
+        comparison_temp = 1.0 if model_name == "gpt-5" else 0.2
+        # Use a different system prompt for explanation generation
+        explanation_system_prompt = (
+            "You are a helpful assistant that explains Python 2 to Python 3 modernization changes clearly and concisely. "
+            "When given Python 2 code and its Python 3 equivalent, provide a bullet-point list of the key modernization changes. "
+            "Focus on Python 2 to 3 specific improvements like print statements, string handling, iterator changes, type annotations, etc. "
+            "Provide no more than 10 bullet points. Be specific and technical about the Python version differences."
         )
-    except OpenAIError as e:
+        
+        compare = openai_request_with_retry(
+            client=client,
+            model_name=model_name,
+            messages=[
+                {"role": "system", "content": explanation_system_prompt},
+                {"role": "user", "content": compare_prompt},
+            ],
+            temperature=comparison_temp
+        )
+        
+        # Add a small delay after explanation generation before security check
+        time.sleep(1)
+    except Exception as e:
         raise RuntimeError(f"OpenAI request failed: {e}") from e
     return (resp, compare)
 
@@ -151,10 +282,10 @@ def run_2to3(src_path, dst_path):
         dst_file.write(str(tree))
 
 
-def migrate_file(src_path, dst_path):
+def migrate_file(src_path, dst_path, model_name=None):
     run_2to3(src_path, dst_path)
     code3 = read_code(dst_path)
-    code3_improved = ai_migrate(code3)[0]
+    code3_improved = ai_migrate(code3, model_name)[0]
     write_tmp(dst_path, code3_improved)
 
 
@@ -169,7 +300,7 @@ def migrate_dir(src_dir, dst_dir):
         )
 
 
-def migrate_code_str(code_str, filename="code.py"):
+def migrate_code_str(code_str, filename="code.py", model_name=None):
     with tempfile.TemporaryDirectory() as tmpdir:
         src_path = os.path.join(tmpdir, "src.py")
         dst_path = os.path.join(tmpdir, "dst.py")
@@ -202,8 +333,8 @@ def migrate_code_str(code_str, filename="code.py"):
                 raise RuntimeError(f"Failed to parse Python 2 code with lib2to3: {str(e)}")
             
             code3 = read_code(dst_path)
-            code3_improved, explanation = ai_migrate(code3)
-            security_issues = ai_security_check(code3_improved, filename)
+            code3_improved, explanation = ai_migrate(code3, model_name)
+            security_issues = ai_security_check(code3_improved, filename, model_name)
 
             return code3_improved, explanation, security_issues
         except Exception as e:

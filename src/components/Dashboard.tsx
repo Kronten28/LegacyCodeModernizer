@@ -25,8 +25,10 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { reports, apiConnectivity } = useAppContext();
 
-  const totalFiles = reports.length;
-  const successfulConversions = reports.filter((r) => r.success).length;
+  const totalFiles = reports.reduce((sum, report) => sum + (report.filesCount || 1), 0);
+  const successfulConversions = reports.reduce((sum, report) => 
+    sum + (report.success ? (report.filesCount || 1) : 0), 0
+  );
   const successRate =
     totalFiles > 0
       ? ((successfulConversions / totalFiles) * 100).toFixed(1)
